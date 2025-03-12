@@ -1,0 +1,7 @@
+discord.py
+openai
+python-dotenv
+watchdog
+requests
+alive-progress
+weaviate-client

@@ -1,0 +1,9 @@
+{
+    "command_prefix": "/",
+    "admin_roles": ["Community Service"],
+    "log_level": "DEBUG",
+    "weaviate_url": "http://localhost:8080",
+    "default_ai_model": "gpt-4",
+    "max_message_history": 5,
+    "debug_mode": true
+}

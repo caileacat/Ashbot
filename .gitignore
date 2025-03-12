@@ -1,0 +1,28 @@
+# .gitignore for AshBot
+
+# Ignore the virtual environment
+.venv/
+
+# Ignore environment variables
+.env
+config/.env  # In case it's moved later
+
+# Ignore cache, compiled files, and logs
+__pycache__/
+logs/
+*.log
+
+# Ignore VS Code settings (optional)
+.vscode/
+
+# Ignore database files (if any in the future)
+*.db
+*.sqlite3
+
+# Ignore Python bytecode files
+*.pyc
+*.pyo
+
+# Ignore system files (Mac & Windows)
+.DS_Store
+Thumbs.db
