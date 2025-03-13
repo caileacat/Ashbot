@@ -2,7 +2,6 @@
 
 # Ignore the virtual environment
 .venv/
-venv/  # In case someone names it differently
 
 # Ignore environment variables
 .env
@@ -27,3 +26,9 @@ logs/
 # Ignore system files (Mac & Windows)
 .DS_Store
 Thumbs.db
+
+# Ignore virtual environment files
+Lib/
+Scripts/
+Include/
+pyvenv.cfg
