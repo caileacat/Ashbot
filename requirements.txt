@@ -5,3 +5,4 @@ watchdog
 requests
 alive-progress
 weaviate-client
+pynacl
