@@ -2,6 +2,7 @@
 
 # Ignore the virtual environment
 .venv/
+venv/  # In case someone names it differently
 
 # Ignore environment variables
 .env
