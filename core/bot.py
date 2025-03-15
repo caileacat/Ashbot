@@ -29,64 +29,6 @@ bot = commands.Bot(command_prefix="/", intents=intents)
 bot_running = False
 bot_thread = None
 
-
-### 🔮 Slash Command: /ash ###
-@bot.tree.command(name="ash", description="Talk to Ash")
-async def talk_to_ash(interaction: discord.Interaction, message: str):
-    """Handles the /ash command, capturing the message for debugging."""
-    print("🚀 `/ash` command was called!")  # ✅ DEBUG LINE
-    await interaction.response.defer()  # ✅ Acknowledge command immediately
-
-    # ✅ Get user details
-    user_id = str(interaction.user.id)
-    username = interaction.user.name
-    timestamp = datetime.datetime.now(datetime.UTC).isoformat()
-
-    # ✅ Fetch last 5 messages in the channel
-    last_messages = []
-    try:
-        async for msg in interaction.channel.history(limit=10):  
-            if msg.author.bot:
-                continue  
-            last_messages.append({
-                "user_id": str(msg.author.id),
-                "message": msg.content,
-                "timestamp": msg.created_at.isoformat()
-            })
-            if len(last_messages) == 5:
-                break  
-    except Exception as e:
-        print(f"❌ Error retrieving channel history: {e}")
-
-    # ✅ Format conversation context
-    formatted_messages = [
-        {
-            "user": {"id": msg["user_id"], "name": "Unknown", "pronouns": "they/them"},
-            "message": msg["message"],
-            "timestamp": msg["timestamp"]
-        }
-        for msg in last_messages
-    ]
-
-    # ✅ Structure debug message
-    structured_message = {
-        "user": {"id": user_id, "name": username, "pronouns": "they/them"},
-        "user_message": message,
-        "timestamp": timestamp,
-        "conversation_context": formatted_messages
-    }
-
-    # ✅ Write to debug.txt instead of sending to ChatGPT
-    debug_file_path = "data/debug.txt"
-    try:
-        with open(debug_file_path, "w", encoding="utf-8") as debug_file:
-            json.dump(structured_message, debug_file, indent=4, ensure_ascii=False)
-        print(f"📝 Debug message written to {debug_file_path}")
-    except Exception as e:
-        print(f"❌ Error writing debug message: {e}")
-
-    await interaction.followup.send(f"📩 Debugging message: `{message}` (Logged to debug.txt)", ephemeral=True)
-
 ### 🎭 Bot Event: On Ready ###
 @bot.event
 async def on_ready():
@@ -110,17 +52,6 @@ async def on_ready():
 
     except Exception as e:
         print(f"❌ Error syncing commands: {e}")
-
-@bot.tree.command(name="debug_commands", description="Check registered commands")
-async def debug_commands(interaction: discord.Interaction):
-    """Lists all registered application commands."""
-    commands = await bot.tree.fetch_commands(guild=discord.Object(id=GUILD_ID))
-    command_list = "\n".join([f"- `{cmd.name}` (ID: {cmd.id})" for cmd in commands])
-
-    if not command_list:
-        command_list = "❌ No commands found."
-
-    await interaction.response.send_message(f"📌 **Registered Commands:**\n{command_list}", ephemeral=True)
 
 ### 🛠️ Bot Controls (Start/Stop) ###
 def run_bot():
@@ -151,6 +82,77 @@ def stop_ashbot():
     bot_running = False
     os._exit(0)  # Force stop for now (we will refine this later)
 
+### 🔮 Slash Command: /ash ###
+@bot.tree.command(name="ash", description="Talk to Ash")
+async def talk_to_ash(interaction: discord.Interaction, message: str):
+    """Handles the /ash command, filtering messages after Ash last spoke."""
+    print("🚀 `/ash` command was called!")  # ✅ DEBUG LINE
+    await interaction.response.defer()  # ✅ Acknowledge command immediately
+
+    user_id = str(interaction.user.id)
+    username = interaction.user.name  
+    timestamp = datetime.datetime.now(datetime.UTC).isoformat()
+
+    last_messages = []
+    try:
+        async for msg in interaction.channel.history(limit=10):  # Grab 10 to filter messages
+            last_messages.append(msg)  # ✅ Keep all messages for processing
+    except Exception as e:
+        print(f"❌ Error retrieving channel history: {e}")
+
+    # ✅ Step 1: Find the last message from Ash
+    last_ash_index = None
+    for i, msg in enumerate(last_messages):
+        if msg.author == bot.user:  # ✅ If Ash sent this message, mark the index
+            last_ash_index = i
+            break  # ✅ Stop at the most recent Ash message
+
+    # ✅ Step 2: Include only messages that came AFTER Ash last spoke
+    filtered_messages = []
+    for i, msg in enumerate(last_messages):
+        if last_ash_index is not None and i <= last_ash_index:
+            continue  # ✅ Skip messages before or by Ash
+
+        if msg.author.bot:
+            continue  # ✅ Skip other bot messages (except Ash)
+
+        filtered_messages.append({
+            "user_id": str(msg.author.id),
+            "message": msg.content,
+            "timestamp": msg.created_at.isoformat()
+        })
+
+    # ✅ Step 3: If the only messages were from Ash, send an empty history
+    if not filtered_messages:
+        conversation_context = "No recent conversation available."
+    else:
+        conversation_context = [
+            {
+                "user": {"id": msg["user_id"], "name": "Unknown", "pronouns": "they/them"},
+                "message": msg["message"],
+                "timestamp": msg["timestamp"]
+            }
+            for msg in filtered_messages
+        ]
+
+    # ✅ Step 4: Structure the final message
+    structured_message = {
+        "user": {"id": user_id, "name": username, "pronouns": "they/them"},
+        "user_message": message,
+        "timestamp": timestamp,
+        "conversation_context": conversation_context
+    }
+
+    # ✅ Step 5: Write to debug.txt instead of sending to ChatGPT
+    debug_file_path = "data/debug.txt"
+    try:
+        with open(debug_file_path, "w", encoding="utf-8") as debug_file:
+            json.dump(structured_message, debug_file, indent=4, ensure_ascii=False)
+        print(f"📝 Debug message written to {debug_file_path}")
+    except Exception as e:
+        print(f"❌ Error writing debug message: {e}")
+
+    await interaction.followup.send(f"📩 Debugging message: `{message}` (Logged to debug.txt)", ephemeral=True)
 
 ### 📝 Console Menu ###
 def show_main_menu():
