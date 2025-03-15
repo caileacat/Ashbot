@@ -2,6 +2,8 @@ import weaviate
 import subprocess
 import time
 import requests
+import json
+import datetime
 
 WEAVIATE_URL = "http://localhost:8080"
 DOCKER_CONTAINER_NAME = "weaviate"
@@ -18,13 +20,23 @@ def is_weaviate_running():
         return False
 
 def stop_weaviate():
-    """Stops the Weaviate container."""
+    """Stops the Weaviate container and ensures the client connection is closed."""
     if not is_weaviate_running():
         print("⚠️ Weaviate is already stopped.")
         return True
-    
+
     print("🛑 Stopping Weaviate...")
     try:
+        client = weaviate.connect_to_custom(
+            http_host="localhost",
+            http_port=8080,
+            http_secure=False,
+            grpc_host="localhost",
+            grpc_port=50051,
+            grpc_secure=False,
+            skip_init_checks=True
+        )
+        client.close()  # ✅ Explicitly close the connection before stopping Weaviate
         subprocess.run(["docker", "stop", DOCKER_CONTAINER_NAME], check=True)
         return not is_weaviate_running()
     except Exception as e:
@@ -32,43 +44,18 @@ def stop_weaviate():
         return False
     
 def start_weaviate():
-    """Starts Weaviate if it's not running, or starts the existing container."""
-    if is_weaviate_running():
-        print("✅ Weaviate is already running.")
-        return True
-
-    # Check if a Weaviate container exists
-    existing_containers = subprocess.run(
-        ["docker", "ps", "-a", "--format", "{{.Names}}"],
-        capture_output=True, text=True
-    ).stdout.split()
-
-    if DOCKER_CONTAINER_NAME in existing_containers:
-        print("🧠 Weaviate container exists but is stopped. Restarting it...")
-        try:
-            subprocess.run(["docker", "start", DOCKER_CONTAINER_NAME], check=True)
-            time.sleep(5)
-            return is_weaviate_running()
-        except Exception as e:
-            print(f"❌ Error starting existing Weaviate container: {e}")
-            return False
-
-    # If there's an existing container but it's broken, remove it
-    print("🛑 Removing conflicting Weaviate container...")
-    try:
-        subprocess.run(["docker", "rm", DOCKER_CONTAINER_NAME], check=True)
-    except Exception as e:
-        print(f"❌ Error removing existing container: {e}")
-        return False
-
-    # Create a new container if none exists
+    """Starts Weaviate by creating a fresh container if needed."""
     print("🚀 Creating a new Weaviate container...")
+
     try:
         subprocess.run([
             "docker", "run", "-d", "--restart=always",
             "--name", DOCKER_CONTAINER_NAME,
             "-p", f"{DOCKER_PORT}:8080",
             "-p", f"{GRPC_PORT}:50051",
+            "-e", "ENABLE_MODULES=text2vec-openai",  # ✅ Ensures OpenAI vectorizer is loaded
+            "-e", "QUERY_DEFAULTS_LIMIT=100",
+            "-e", "AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true",
             DOCKER_IMAGE
         ], check=True)
         time.sleep(5)
@@ -77,41 +64,77 @@ def start_weaviate():
         print(f"❌ Error creating new Weaviate container: {e}")
         return False
 
-def restart_weaviate():
-    """Restarts Weaviate by stopping and starting the existing container."""
-    if not is_weaviate_running():
-        print("⚠️ Cannot restart Weaviate because it's not running. Starting it instead.")
-        return start_weaviate()
-
-    print("🔄 Restarting Weaviate...")
-    try:
-        subprocess.run(["docker", "restart", DOCKER_CONTAINER_NAME], check=True)
-        time.sleep(5)
-        return is_weaviate_running()
-    except Exception as e:
-        print(f"❌ Error restarting Weaviate: {e}")
-        return False
-
 def reset_memory():
-    """Resets Weaviate memory by deleting all data. Only available when Weaviate is OFF."""
+    """Resets Weaviate memory by deleting the container, creating a new one, and reinitializing core memories."""
     if is_weaviate_running():
-        print("⚠️ Cannot reset memory while Weaviate is running. Stop Weaviate first.")
-        return False
-    
+        stop_weaviate()
+
     confirmation = input("To confirm removal of all of Ash's memories, type: KILL ASH\n> ")
     if confirmation != "KILL ASH":
         print("❌ Memory reset aborted. Incorrect confirmation input.")
         return False
-    
-    print("⚠️ Resetting ALL Weaviate memory...")
+
+    print("⚠️ Resetting ALL Weaviate memory by deleting and recreating the container...")
     try:
-        client = weaviate.WeaviateClient(WEAVIATE_URL)
-        client.collections.delete("UserMemory")
-        print("✅ Memory reset successfully.")
+        subprocess.run(["docker", "rm", "-f", DOCKER_CONTAINER_NAME], check=True)
+        start_weaviate()
+        initialize_core_memories()
+        print("✅ Memory reset and container recreated successfully.")
         return True
     except Exception as e:
         print(f"❌ Error resetting memory: {e}")
         return False
+
+def initialize_core_memories():
+    """Re-inserts core user memories into Weaviate, ensuring the schema exists."""
+    print("🔄 Initializing core memories...")
+    client = weaviate.connect_to_custom(
+        http_host="localhost",
+        http_port=8080,
+        http_secure=False,
+        grpc_host="localhost",
+        grpc_port=50051,
+        grpc_secure=False,
+        skip_init_checks=True
+    )
+
+    schema = client.collections.list_all()
+    if "UserMemory" not in schema:
+        print("⚠️ Schema missing! Creating UserMemory schema...")
+        client.collections.create(
+            name="UserMemory",
+            vectorizer_config=weaviate.classes.config.Configure.Vectorizer.text2vec_openai(),
+            properties=[
+                weaviate.classes.config.Property(name="user_id", data_type=weaviate.classes.config.DataType.TEXT),
+                weaviate.classes.config.Property(name="memory_type", data_type=weaviate.classes.config.DataType.TEXT),
+                weaviate.classes.config.Property(name="memory_text", data_type=weaviate.classes.config.DataType.TEXT),
+                weaviate.classes.config.Property(name="relationship_notes", data_type=weaviate.classes.config.DataType.TEXT),
+                weaviate.classes.config.Property(name="interaction_count", data_type=weaviate.classes.config.DataType.INT),
+                weaviate.classes.config.Property(name="last_interaction", data_type=weaviate.classes.config.DataType.DATE)
+            ]
+        )
+        print("✅ UserMemory schema created.")
+
+    core_memories = {
+        "851181959933591554": {"name": "Cailea", "role": "Boss and Closest Friend"},
+        "424042103346298880": {"name": "Lemon", "role": "Cailea's Partner, Fun Prankster Friend"},
+        "0": {"identity": "Ashen 'Ash' Thornbrook", "role": "Mischievous Non-Binary Fae-Witch"}
+    }
+
+    try:
+        for user_id, memory in core_memories.items():
+            memory_text = json.dumps(memory, ensure_ascii=False)
+            timestamp = datetime.datetime.utcnow().isoformat()
+            client.collections.get("UserMemory").data.insert({
+                "user_id": user_id,
+                "memory_type": "core",
+                "memory_text": memory_text,
+                "timestamp": timestamp
+            })
+            print(f"✅ Memory initialized for user {user_id}.")
+        print("🎉 All core memories initialized successfully!")
+    except Exception as e:
+        print(f"❌ Error inserting core memories: {e}")
 
 def weaviate_menu():
     """Displays the Weaviate Management Menu with only valid options."""
@@ -123,7 +146,7 @@ def weaviate_menu():
             print("[R] Restart Weaviate")
         else:
             print("[W] Start Weaviate")
-            print("[RESET] Reset ALL Memory to default")
+        print("[RESET] Reset ALL Memory to default")
         print("[X] Back")
 
         choice = input("Select an option: ").strip().upper()
@@ -133,8 +156,8 @@ def weaviate_menu():
         elif choice == "S" and is_weaviate_running():
             stop_weaviate()
         elif choice == "R" and is_weaviate_running():
-            restart_weaviate()
-        elif choice == "RESET" and not is_weaviate_running():
+            reset_memory()
+        elif choice == "RESET":
             reset_memory()
         elif choice == "X":
             print("🔙 Returning to Main Menu...")
