@@ -1,10 +1,10 @@
 import logging
 
-# Set up logging (default to INFO)
+# ✅ Set up logging (default to INFO)
 logging.basicConfig(level=logging.INFO)
 
 def set_logging_level(level):
-    """Changes the logging level dynamically."""
+    """Changes the logging level dynamically, including discord.py loggers."""
     level_map = {
         "1": logging.DEBUG,
         "2": logging.INFO,
@@ -14,8 +14,15 @@ def set_logging_level(level):
     }
     
     if level in level_map:
-        logging.getLogger().setLevel(level_map[level])
-        print(f"✅ Logging level set to {logging.getLevelName(level_map[level])}")
+        new_level = level_map[level]
+        logging.getLogger().setLevel(new_level)
+
+        # ✅ Apply new logging level to discord.py loggers
+        logging.getLogger("discord").setLevel(new_level)
+        logging.getLogger("discord.gateway").setLevel(new_level)
+        logging.getLogger("discord.client").setLevel(new_level)
+
+        print(f"✅ Logging level set to {logging.getLevelName(new_level)}")
     else:
         print("❌ Invalid selection. Please choose a number between 1 and 5.")
 

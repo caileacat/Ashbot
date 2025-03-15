@@ -1,0 +1,23 @@
+classes:
+  - class: UserMemory
+    description: "Stores persistent and conversational memories about users."
+    vectorizer: "text2vec-openai"
+    properties:
+      - name: user_id
+        dataType: [string]
+        description: "Discord user ID."
+      - name: memory_type
+        dataType: [string]
+        description: "Type of memory (core, conversational, relationship)."
+      - name: memory_text
+        dataType: [string]
+        description: "Stored memory content."
+      - name: relationship_notes
+        dataType: [string]
+        description: "Ash's personal feelings and thoughts about this user."
+      - name: interaction_count
+        dataType: [int]
+        description: "How many times this user has interacted with Ash."
+      - name: last_interaction
+        dataType: [date]
+        description: "The timestamp of the last meaningful interaction."
