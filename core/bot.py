@@ -8,15 +8,21 @@ import aiohttp  # ✅ Required for setting timeout
 import datetime
 import threading  # ✅ Allows running the bot in a separate thread
 from dotenv import load_dotenv
+from discord import app_commands  # ✅ Required for slash commands
 from discord.ext import commands
 from core.startup import initialize_services  # ✅ Run startup checks from the menu
 from core.weaviate_manager import weaviate_menu
 from core.message_handler import send_to_chatgpt  # ✅ Import message handling
 from core.logging_manager import show_logging_menu
+from core.message_handler import send_console_message_to_chatgpt  # ✅ Import missing function
+
 
 # ✅ Load environment variables
 load_dotenv()
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", 0))  # ✅ Ensure the bot is registered to the correct server
+bot_running = False  # ✅ Track if the bot is running
+bot_thread = None  # ✅ Track bot thread
 
 # ✅ Set up logging (default to INFO)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -25,36 +31,37 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 intents = discord.Intents.default()
 intents.message_content = True  # Required for reading messages
 
-bot_running = False  # ✅ Track if the bot is running
-bot_thread = None  # ✅ Track the bot thread
-
-# ✅ Create the bot instance
 bot = commands.Bot(command_prefix="/", intents=intents)
-
-async def configure_http():
-    """Configures the HTTP settings for Discord bot without deprecated timeout settings."""
-    bot.http.connector = aiohttp.TCPConnector(limit=None)  # ✅ Sets unlimited connections
 
 @bot.event
 async def on_ready():
     """Triggered when the bot successfully logs in."""
-    await configure_http()  # ✅ Set HTTP settings after bot is ready
-    print(f"✅ Logged in as {bot.user}")
+    global bot_running
+    bot_running = True  # ✅ Ensure tracking starts when bot is running
+
+    try:
+        await bot.tree.sync()  # ✅ Sync commands after bot is fully ready
+        print(f"✅ Logged in as {bot.user} | Slash Commands Synced")
+    except Exception as e:
+        print(f"❌ Error syncing commands: {e}")
+
+# ✅ Slash Command: /ash
+@bot.tree.command(name="ash", description="Talk to Ash")
+async def talk_to_ash(interaction: discord.Interaction, message: str):
+    """Handles the /ash command, capturing the message for debugging."""
+    await interaction.response.defer()  # ✅ Acknowledge command immediately
+
+    user_id = str(interaction.user.id)  # ✅ Get user details
+    send_to_chatgpt(message, user_id)   # ✅ Calls main function
+
+    await interaction.followup.send(f"📩 Debugging message: {message} (Logged to debug.txt)", ephemeral=True)
 
 def run_bot():
-    """Runs AshBot in a separate thread without causing event loop issues."""
+    """Runs AshBot in a separate thread without blocking the menu."""
     global bot_running
-    bot_running = True
+    bot_running = True  # ✅ Mark bot as running
 
-    loop = asyncio.new_event_loop()  # ✅ Create a fresh event loop for the thread
-    asyncio.set_event_loop(loop)
-    
-    try:
-        loop.run_until_complete(bot.start(DISCORD_BOT_TOKEN))  # ✅ Properly starts bot
-    except KeyboardInterrupt:
-        loop.run_until_complete(bot.close())
-    finally:
-        loop.close()  # ✅ Ensures event loop is properly closed
+    asyncio.run(bot.start(DISCORD_BOT_TOKEN))  # ✅ Run bot in its own event loop
 
 def start_ashbot():
     """Starts AshBot in a separate thread so the menu remains available."""
@@ -62,7 +69,7 @@ def start_ashbot():
     if bot_running:
         print("⚠️ AshBot is already running.")
         return
-    
+
     print("🚀 Starting AshBot...")
     bot_thread = threading.Thread(target=run_bot, daemon=True)
     bot_thread.start()
@@ -75,11 +82,10 @@ def stop_ashbot():
         return
 
     print("🛑 Stopping AshBot...")
-    bot_running = False
+    bot_running = False  # ✅ Ensure bot_running updates globally
 
     # ✅ Close the bot properly
-    loop = asyncio.get_event_loop()
-    loop.call_soon_threadsafe(asyncio.create_task, bot.close())
+    asyncio.run(bot.close())
 
 def show_main_menu():
     """Displays the main menu for AshBot."""
@@ -103,29 +109,33 @@ def show_main_menu():
         print("[C] Configure Logging")
         print("[X] Exit AshBot")
 
-        choice = input("Select an option: ").strip()
+        choice = input("Select an option: ").strip().upper()
 
-        if choice.upper() == "S" and bot_running:
+        if choice == "S" and bot_running:
             stop_ashbot()
-        elif choice.upper() == "A" and not bot_running:
+        elif choice == "A" and not bot_running:
             print("🚀 Starting AshBot...")
             start_ashbot()
-        elif choice.upper() == "D" and not bot_running:
+        elif choice == "D" and not bot_running:
             print("👀 Starting AshBot with Watchdog...")
             start_ashbot()
-        elif choice.upper() == "W":
+        elif choice == "W":
             weaviate_menu()
-        elif choice.upper() == "C":
+        elif choice == "C":
             show_logging_menu()
-        elif choice.upper() == "X":
+        elif choice == "X":
             print("👋 Exiting AshBot...")
             break
         else:
             # ✅ If input is NOT a command, assume it's a message to Ash
             print(f"📩 Preparing message to Ash: {choice}")
-            send_to_chatgpt(choice)  # ✅ Calls our debugging function
+            send_console_message_to_chatgpt(choice)  # ✅ Calls console-specific function
 
         time.sleep(1)  # ✅ Small delay for readability
 
+# ✅ Ensure both the bot and menu start correctly
 if __name__ == "__main__":
-    show_main_menu()
+    menu_thread = threading.Thread(target=show_main_menu, daemon=True)
+    menu_thread.start()
+
+    run_bot()  # ✅ Start bot in main thread
