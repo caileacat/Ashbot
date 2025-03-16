@@ -8,6 +8,7 @@ import json
 from weaviate.classes.init import AdditionalConfig, Timeout
 import weaviate.classes as wvc  # ✅ Required for Weaviate v4 classes
 from weaviate.classes.query import Filter
+from weaviate.classes.config import Property, DataType  # ✅ Correct imports
 
 # ✅ Constants
 WEAVIATE_URL = "http://localhost:8080"
@@ -57,32 +58,57 @@ def fetch_user_memory(user_id):
         return None
 
 def load_weaviate_schema():
-    """Forces Weaviate to use the correct schema format."""
-    client = weaviate.connect_to_local()
+    """Loads the Weaviate schema from YAML file using Weaviate v4 format."""
+    client = connect_to_weaviate()
+    
+    if not client:
+        print("❌ Unable to connect to Weaviate.")
+        return False
+
+    schema_path = "data/weaviate_schema.yaml"
+    if not os.path.exists(schema_path):
+        print(f"❌ Schema file not found: {schema_path}. Make sure it exists before running RESET.")
+        return False
 
     try:
-        # ✅ Delete old schema to FORCE proper application
-        existing_collections = [col.name for col in client.collections.list_all()]
-        for collection in existing_collections:
-            client.collections.delete(collection)
-            print(f"🗑️ Deleted existing collection: {collection}")
-
-        # ✅ Load schema from YAML
-        with open("data/weaviate_schema.yaml", "r", encoding="utf-8") as file:
+        with open(schema_path, "r", encoding="utf-8") as file:
             schema = yaml.safe_load(file)
 
-        # ✅ Recreate all collections
-        for collection in schema["classes"]:
-            print(f"🚀 Creating collection: {collection['class']}")
-            client.collections.create(collection)
+        # ✅ Get list of existing collections using Weaviate v4 method
+        existing_collections = [col.name for col in client.collections.list_all()]
 
+        for collection in schema["classes"]:
+            collection_name = collection["class"]
+
+            if collection_name not in existing_collections:
+                print(f"🚀 Creating collection: {collection_name}")
+
+                # ✅ Fix: Extract first item from `dataType` list
+                properties = [
+                    wvc.config.Property(
+                        name=prop["name"],
+                        data_type=wvc.config.DataType[prop["dataType"][0].upper()],  # ✅ Fix here
+                    )
+                    for prop in collection["properties"]
+                ]
+
+                client.collections.create(
+                    name=collection_name,
+                    properties=properties
+                )
+
+                print(f"✅ Collection '{collection_name}' created successfully.")
+            else:
+                print(f"⚠️ Collection '{collection_name}' already exists. Skipping.")
+
+        client.close()
         print("✅ Weaviate schema loaded successfully!")
+        return True
 
     except Exception as e:
         print(f"❌ Error loading Weaviate schema: {e}")
-
-    finally:
         client.close()
+        return False
 
 def is_weaviate_running_quick():
     """A fast check to see if Weaviate is responding."""
@@ -120,26 +146,37 @@ def stop_weaviate():
         return False
 
 def start_weaviate():
-    """Ensures Weaviate is running efficiently without unnecessary waits."""
+    """Starts Weaviate by restarting an existing container if available, or creating a new one if necessary."""
     
-    # 🔍 Step 1: Quick Check - Is Weaviate already running?
     if is_weaviate_running_quick():
         print("✅ Weaviate is already running.")
         return True
 
-    print("🚀 Starting a fresh Weaviate instance...")
-
-    # 🛑 Step 2: Check for existing stopped container & remove it
+    # 🔍 Step 1: Check for an existing stopped container
     existing_containers = subprocess.run(
         ["docker", "ps", "-a", "--format", "{{.Names}}"],
         capture_output=True, text=True
     ).stdout.split()
 
     if DOCKER_CONTAINER_NAME in existing_containers:
-        print("🛑 Removing old Weaviate container...")
-        subprocess.run(["docker", "rm", "-f", DOCKER_CONTAINER_NAME], check=True)
+        print("♻️ Restarting existing Weaviate container...")
+        try:
+            subprocess.run(["docker", "start", DOCKER_CONTAINER_NAME], check=True)
 
-    # 🚀 Step 3: Start a new Weaviate container
+            # ✅ Ensure Weaviate is fully ready before returning
+            if is_weaviate_fully_ready():
+                print("✅ Weaviate restarted and is fully operational!")
+                return True
+            else:
+                print("⚠️ Weaviate restarted but is not fully ready yet.")
+                return False
+
+        except Exception as e:
+            print(f"❌ Error restarting Weaviate container: {e}")
+            return False
+
+    # 🚀 Step 2: No existing container, create a new one (only for RESET)
+    print("🛑 No existing container found. Creating a fresh Weaviate instance...")
     try:
         subprocess.run([
             "docker", "run", "-d", "--restart=always",
@@ -149,19 +186,15 @@ def start_weaviate():
             DOCKER_IMAGE
         ], check=True)
 
-        print("⏳ Waiting for Weaviate to fully start...")
-
-        # 🔄 Step 4: Ensure Weaviate is fully ready before returning success
         if is_weaviate_fully_ready():
-            print("✅ Weaviate started successfully and is ready to use!")
+            print("✅ New Weaviate container created and started successfully!")
             return True
-        else:
-            print("❌ Weaviate started, but is not responding correctly.")
-            return False
 
     except Exception as e:
-        print(f"❌ Error starting Weaviate: {e}")
+        print(f"❌ Error creating Weaviate container: {e}")
         return False
+
+    return False
     
 def restart_weaviate():
     """Restarts Weaviate efficiently and ensures it is fully ready before continuing."""
