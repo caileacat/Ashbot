@@ -9,6 +9,7 @@ from weaviate.classes.init import AdditionalConfig, Timeout
 import weaviate.classes as wvc  # ✅ Required for Weaviate v4 classes
 from weaviate.classes.query import Filter
 from weaviate.classes.config import Property, DataType  # ✅ Correct imports
+from weaviate.collections.classes.grpc import Sort # ✅ Import the correct sorting classes
 
 # ✅ Constants
 WEAVIATE_URL = "http://localhost:8080"
@@ -24,6 +25,69 @@ def connect_to_weaviate():
         port=8080,
         grpc_port=50051,  # ✅ Explicitly set gRPC port
     )
+
+def fetch_user_profile(user_id):
+    """Retrieves the full user profile from Weaviate."""
+    client = weaviate.connect_to_local(port=8080, grpc_port=50051)
+    
+    user_profiles = client.collections.get("UserProfiles")
+    
+    response = user_profiles.query.fetch_objects(
+        filters=Filter.by_property("user_id").equal(user_id),
+        limit=1  # There should only be one user profile per user
+    )
+    
+    client.close()
+    
+    if response.objects:
+        return response.objects[0].properties  # ✅ Return all profile fields
+    else:
+        print(f"⚠️ No profile found for user `{user_id}`.")
+        return None
+
+def fetch_long_term_memories(user_id):
+    """Fetches long-term memories for a user from Weaviate."""
+    try:
+        client = weaviate.connect_to_local(port=8080, grpc_port=50051)
+        long_term_memories = client.collections.get("LongTermMemories")
+
+        # ✅ Fix: Apply correct sorting
+        response = long_term_memories.query.fetch_objects(
+            return_properties=["memory", "timestamp", "reinforced_count"],
+            filters=Filter.by_property("user_id").equal(user_id),
+            limit=5,  # Adjust as needed
+            sort=Sort.by_property(name="reinforced_count", ascending=False)  # Sort by most reinforced first
+        )
+
+        client.close()
+
+        # ✅ Extract and return the memory list
+        return [obj.properties for obj in response.objects]
+
+    except Exception as e:
+        print(f"❌ Error fetching long-term memories: {e}")
+        return []
+
+def fetch_recent_conversations(user_id, limit=3):
+    """Retrieves the last `limit` recent conversations for a user."""
+    client = weaviate.connect_to_local(port=8080, grpc_port=50051)
+
+    recent_conversations = client.collections.get("RecentConversations")
+
+    response = recent_conversations.query.fetch_objects(
+        filters=Filter.by_property("user_id").equal(user_id),
+        limit=limit,
+        sort=Sort.by_property(name="timestamp", ascending=False)  # Sort by newest conversations first
+
+    )
+
+    client.close()
+
+    if response.objects:
+        return [obj.properties for obj in response.objects]  # ✅ Return all fields
+    else:
+        print(f"⚠️ No recent conversations found for user `{user_id}`.")
+        return []
 
 def fetch_user_memory(user_id):
     """Fetches memory about a specific user from Weaviate."""
