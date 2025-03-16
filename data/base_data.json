@@ -1,0 +1,33 @@
+{
+    "UserProfiles": [
+        {
+            "user_id": "000000",
+            "name": "Ash Thornbrook",
+            "pronouns": "they/them",
+            "role": "AI Fae-Witch",
+            "relationship_notes": "Knows Cailea best. Remembers many things."
+        },
+        {
+            "user_id": "851181959933591554",
+            "name": "Cailea",
+            "pronouns": "she/they",
+            "role": "Bot Creator",
+            "relationship_notes": "The Creator of Ash. 🖤"
+        }
+    ],
+    "LongTermMemories": [
+        {
+            "user_id": "851181959933591554",
+            "memory": "Cailea loves horror movies.",
+            "timestamp": "2025-03-16T12:00:00",
+            "reinforced_count": 3
+        }
+    ],
+    "RecentConversations": [
+        {
+            "user_id": "851181959933591554",
+            "summary": "Cailea asked Ash about horror movie recommendations.",
+            "timestamp": "2025-03-16T12:00:00"
+        }
+    ]
+}

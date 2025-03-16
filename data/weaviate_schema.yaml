@@ -1,23 +1,52 @@
 classes:
-  - class: UserMemory
-    description: "Stores persistent and conversational memories about users."
-    vectorizer: "text2vec-openai"
+  - class: UserProfiles
+    description: "Stores static user details."
     properties:
       - name: user_id
         dataType: [string]
-        description: "Discord user ID."
-      - name: memory_type
+        description: "Unique Discord user ID."
+        indexInverted: true
+      - name: name
         dataType: [string]
-        description: "Type of memory (core, conversational, relationship)."
-      - name: memory_text
+        description: "User's preferred name."
+      - name: pronouns
         dataType: [string]
-        description: "Stored memory content."
+        description: "User's preferred pronouns."
+      - name: role
+        dataType: [string]
+        description: "User's role or relationship with Ashbot."
       - name: relationship_notes
+        dataType: [text]
+        description: "Notes on how Ashbot perceives this user."
+
+  - class: LongTermMemories
+    description: "Stores evolving user memories."
+    properties:
+      - name: user_id
         dataType: [string]
-        description: "Ash's personal feelings and thoughts about this user."
-      - name: interaction_count
-        dataType: [int]
-        description: "How many times this user has interacted with Ash."
-      - name: last_interaction
+        description: "User's unique Discord ID."
+        indexInverted: true
+      - name: memory
+        dataType: [text]
+        description: "A memory Ashbot has about the user."
+      - name: timestamp
         dataType: [date]
-        description: "The timestamp of the last meaningful interaction."
+        description: "When this memory was stored."
+      - name: reinforced_count
+        dataType: [int]
+        description: "How many times this memory has been reinforced."
+
+  - class: RecentConversations
+    description: "Summaries of user interactions with Ashbot."
+    properties:
+      - name: user_id
+        dataType: [string]
+        description: "User's unique Discord ID."
+        indexInverted: true
+      - name: timestamp
+        dataType: [date]
+        description: "When the conversation happened."
+        indexInverted: true
+      - name: summary
+        dataType: [text]
+        description: "A summary of a recent conversation."

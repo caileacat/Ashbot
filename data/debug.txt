@@ -2,10 +2,13 @@
     "user": {
         "id": "851181959933591554",
         "name": "cailea",
-        "pronouns": "they/them"
+        "pronouns": "they/them",
+        "role": "Unknown",
+        "relationship_notes": "No relationship data",
+        "interaction_count": 0
     },
-    "user_message": "hiya!",
-    "timestamp": "2025-03-15T18:22:02.159514+00:00",
+    "user_message": "awermoiwmaer",
+    "timestamp": "2025-03-15T22:57:26.287537+00:00",
     "conversation_context": [
         {
             "user": {
