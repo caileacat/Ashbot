@@ -59,33 +59,6 @@ def start_docker():
         print(f"❌ Error starting Docker: {e}")
         return False
 
-### 🎭 Bot Event: On Ready ###
-@bot.event
-async def on_ready():
-    """Triggered when the bot successfully logs in and registers commands correctly."""
-    try:
-        await asyncio.sleep(5)  # ✅ Allow Discord time to initialize
-        print("🚀 Checking and syncing commands...")
-
-        # ✅ Step 1: Sync all commands normally
-        await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
-        print(f"✅ Logged in as {bot.user} | Commands Re-Synced")
-
-    except discord.app_commands.errors.CommandAlreadyRegistered as e:
-        print(f"⚠️ Command '{e.name}' is already registered. Skipping re-registration.")
-
-    except Exception as e:
-        print(f"❌ Error syncing commands: {e}")
-
-    # ✅ Step 2: Debugging - Print registered commands dynamically
-    try:
-        commands = await bot.tree.fetch_commands(guild=discord.Object(id=GUILD_ID))
-        command_list = [cmd.name for cmd in commands]
-        if command_list:
-            print(f"📌 Registered commands: {command_list}")
-    except Exception as e:
-        print(f"❌ Error fetching registered commands: {e}")
-
 ### 🛠️ Bot Controls (Start/Stop) ###
 def run_bot():
     """Runs AshBot in a separate thread."""
@@ -158,6 +131,33 @@ def show_main_menu():
             show_logging_menu()
         elif choice == "X":
             break
+
+### 🎭 Bot Event: On Ready ###
+@bot.event
+async def on_ready():
+    """Triggered when the bot successfully logs in and registers commands correctly."""
+    try:
+        await asyncio.sleep(5)  # ✅ Allow Discord time to initialize
+        print("🚀 Checking and syncing commands...")
+
+        # ✅ Step 1: Sync all commands normally
+        await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
+        print(f"✅ Logged in as {bot.user} | Commands Re-Synced")
+
+    except discord.app_commands.errors.CommandAlreadyRegistered as e:
+        print(f"⚠️ Command '{e.name}' is already registered. Skipping re-registration.")
+
+    except Exception as e:
+        print(f"❌ Error syncing commands: {e}")
+
+    # ✅ Step 2: Debugging - Print registered commands dynamically
+    try:
+        commands = await bot.tree.fetch_commands(guild=discord.Object(id=GUILD_ID))
+        command_list = [cmd.name for cmd in commands]
+        if command_list:
+            print(f"📌 Registered commands: {command_list}")
+    except Exception as e:
+        print(f"❌ Error fetching registered commands: {e}")
 
 if __name__ == "__main__":
     show_main_menu()
