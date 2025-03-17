@@ -1,28 +1,23 @@
 import os
 import json
-import time  # ✅ Needed for adding delay before re-printing the menu
+import asyncio
 import discord
 import logging
-import asyncio
-import aiohttp  # ✅ Required for setting timeout
 import datetime
-import threading  # ✅ Allows running the bot in a separate thread
+import threading
+import subprocess
+import time
 from dotenv import load_dotenv
-from discord import app_commands  # ✅ Required for slash commands
 from discord.ext import commands
-from core.startup import initialize_services  # ✅ Run startup checks from the menu
-from core.weaviate_manager import weaviate_menu
-from core.message_handler import send_to_chatgpt  # ✅ Import message handling
 from core.logging_manager import show_logging_menu
-from core.message_handler import send_console_message_to_chatgpt  # ✅ Import missing function
-
+from core.weaviate_manager import weaviate_menu, start_weaviate, is_weaviate_running
+from core.weaviate_manager import create_weaviate_container, initialize_weaviate_data
 
 # ✅ Load environment variables
 load_dotenv()
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", 0))  # ✅ Ensure the bot is registered to the correct server
-bot_running = False  # ✅ Track if the bot is running
-bot_thread = None  # ✅ Track bot thread
+GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", 0))
+DOCKER_EXE_PATH = r"C:\Program Files\Docker\Docker\Docker Desktop.exe"
 
 # ✅ Set up logging (default to INFO)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -30,38 +25,46 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 # ✅ Set up Discord bot with intents
 intents = discord.Intents.default()
 intents.message_content = True  # Required for reading messages
-
 bot = commands.Bot(command_prefix="/", intents=intents)
 
-@bot.event
-async def on_ready():
-    """Triggered when the bot successfully logs in."""
-    global bot_running
-    bot_running = True  # ✅ Ensure tracking starts when bot is running
+# ✅ Track bot state
+bot_running = False
+bot_thread = None
 
+### 🐳 Docker Functions ###
+def is_docker_running():
+    """Check if Docker is running."""
     try:
-        await bot.tree.sync()  # ✅ Sync commands after bot is fully ready
-        print(f"✅ Logged in as {bot.user} | Slash Commands Synced")
+        result = subprocess.run(["docker", "info"], capture_output=True, text=True)
+        return "Server Version" in result.stdout
+    except FileNotFoundError:
+        return False
+
+def start_docker():
+    """Attempt to start Docker Desktop on Windows and wait for it."""
+    print("🐳 Docker is not running. Attempting to start...")
+    try:
+        subprocess.run(["powershell", "-Command", f"Start-Process '{DOCKER_EXE_PATH}' -NoNewWindow"], check=True)
+        print("⏳ Waiting for Docker to start...")
+
+        for _ in range(30):  # Wait up to 30 seconds
+            if is_docker_running():
+                print("✅ Docker is now running!")
+                return True
+            time.sleep(1)
+
+        print("❌ Docker did not start in time.")
+        return False
     except Exception as e:
-        print(f"❌ Error syncing commands: {e}")
+        print(f"❌ Error starting Docker: {e}")
+        return False
 
-# ✅ Slash Command: /ash
-@bot.tree.command(name="ash", description="Talk to Ash")
-async def talk_to_ash(interaction: discord.Interaction, message: str):
-    """Handles the /ash command, capturing the message for debugging."""
-    await interaction.response.defer()  # ✅ Acknowledge command immediately
-
-    user_id = str(interaction.user.id)  # ✅ Get user details
-    send_to_chatgpt(message, user_id)   # ✅ Calls main function
-
-    await interaction.followup.send(f"📩 Debugging message: {message} (Logged to debug.txt)", ephemeral=True)
-
+### 🛠️ Bot Controls (Start/Stop) ###
 def run_bot():
-    """Runs AshBot in a separate thread without blocking the menu."""
+    """Runs AshBot in a separate thread."""
     global bot_running
-    bot_running = True  # ✅ Mark bot as running
-
-    asyncio.run(bot.start(DISCORD_BOT_TOKEN))  # ✅ Run bot in its own event loop
+    bot_running = True
+    bot.run(DISCORD_BOT_TOKEN)
 
 def start_ashbot():
     """Starts AshBot in a separate thread so the menu remains available."""
@@ -69,7 +72,7 @@ def start_ashbot():
     if bot_running:
         print("⚠️ AshBot is already running.")
         return
-
+    
     print("🚀 Starting AshBot...")
     bot_thread = threading.Thread(target=run_bot, daemon=True)
     bot_thread.start()
@@ -82,26 +85,32 @@ def stop_ashbot():
         return
 
     print("🛑 Stopping AshBot...")
-    bot_running = False  # ✅ Ensure bot_running updates globally
+    bot_running = False
+    os._exit(0)  # Force stop for now (we will refine this later)
 
-    # ✅ Close the bot properly
-    asyncio.run(bot.close())
-
+### 📝 Console Menu ###
 def show_main_menu():
     """Displays the main menu for AshBot."""
     global bot_running
 
-    # ✅ Run startup checks inside the menu
-    startup_successful = initialize_services()
-    if not startup_successful:
-        print("❌ Startup failed. Exiting...")
-        return
+    # ✅ **Ensure Docker is running before anything else**
+    print("🔄 Ensuring Docker is running...")
+    if not is_docker_running():
+        if not start_docker():
+            print("🚨 Docker must be running for AshBot to work. Continuing anyway...")
+    
+    # ✅ **Ensure Weaviate is running properly before allowing AshBot to start**
+    print("🔄 Ensuring Weaviate is running...")
+    if not is_weaviate_running():
+        print("🧠 Weaviate is not running. Attempting to start...")
+        if not start_weaviate():
+            print("❌ Weaviate failed to start, but you can manage it from the menu.")
 
     while True:
         time.sleep(3)  # ✅ Waits 3 seconds before re-printing the menu
         print("\n=== AshBot Menu ===")
         if bot_running:
-            print("[S] Stop AshBot")
+            print("[S] Stop AshBot")  # ✅ Stop option at the top
         else:
             print("[A] Start AshBot")
             print("[D] Start AshBot with Watchdog")
@@ -110,32 +119,45 @@ def show_main_menu():
         print("[X] Exit AshBot")
 
         choice = input("Select an option: ").strip().upper()
-
         if choice == "S" and bot_running:
             stop_ashbot()
         elif choice == "A" and not bot_running:
-            print("🚀 Starting AshBot...")
             start_ashbot()
         elif choice == "D" and not bot_running:
-            print("👀 Starting AshBot with Watchdog...")
             start_ashbot()
         elif choice == "W":
             weaviate_menu()
         elif choice == "C":
             show_logging_menu()
         elif choice == "X":
-            print("👋 Exiting AshBot...")
             break
-        else:
-            # ✅ If input is NOT a command, assume it's a message to Ash
-            print(f"📩 Preparing message to Ash: {choice}")
-            send_console_message_to_chatgpt(choice)  # ✅ Calls console-specific function
 
-        time.sleep(1)  # ✅ Small delay for readability
+### 🎭 Bot Event: On Ready ###
+@bot.event
+async def on_ready():
+    """Triggered when the bot successfully logs in and registers commands correctly."""
+    try:
+        await asyncio.sleep(5)  # ✅ Allow Discord time to initialize
+        print("🚀 Checking and syncing commands...")
 
-# ✅ Ensure both the bot and menu start correctly
+        # ✅ Step 1: Sync all commands normally
+        await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
+        print(f"✅ Logged in as {bot.user} | Commands Re-Synced")
+
+    except discord.app_commands.errors.CommandAlreadyRegistered as e:
+        print(f"⚠️ Command '{e.name}' is already registered. Skipping re-registration.")
+
+    except Exception as e:
+        print(f"❌ Error syncing commands: {e}")
+
+    # ✅ Step 2: Debugging - Print registered commands dynamically
+    try:
+        commands = await bot.tree.fetch_commands(guild=discord.Object(id=GUILD_ID))
+        command_list = [cmd.name for cmd in commands]
+        if command_list:
+            print(f"📌 Registered commands: {command_list}")
+    except Exception as e:
+        print(f"❌ Error fetching registered commands: {e}")
+
 if __name__ == "__main__":
-    menu_thread = threading.Thread(target=show_main_menu, daemon=True)
-    menu_thread.start()
-
-    run_bot()  # ✅ Start bot in main thread
+    show_main_menu()

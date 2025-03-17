@@ -6,3 +6,5 @@ requests
 alive-progress
 weaviate-client
 pynacl
+pyyaml
+docker
