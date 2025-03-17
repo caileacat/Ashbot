@@ -1,15 +1,15 @@
-import weaviate
 import os
-import subprocess
 import time
-import requests
 import yaml
 import json
-from weaviate.classes.init import AdditionalConfig, Timeout
+import docker
+import weaviate
+import requests
+import subprocess
 import weaviate.classes as wvc  # ✅ Required for Weaviate v4 classes
-from weaviate.classes.query import Filter
-from weaviate.classes.config import Property, DataType  # ✅ Correct imports
 from weaviate.collections.classes.grpc import Sort # ✅ Import the correct sorting classes
+from weaviate.classes.query import Filter, Sort, MetadataQuery
+from dotenv import load_dotenv
 
 # ✅ Constants
 WEAVIATE_URL = "http://localhost:8080"
@@ -17,6 +17,44 @@ DOCKER_CONTAINER_NAME = "weaviate"
 DOCKER_IMAGE = "semitechnologies/weaviate"
 DOCKER_PORT = 8080
 GRPC_PORT = 50051
+
+# ✅ Force loading `.env` from the project's root directory
+dotenv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
+
+# ✅ Load the .env file explicitly
+if os.path.exists(dotenv_path):
+    load_dotenv(dotenv_path)
+    print(f"✅ Loaded .env from: {dotenv_path}")
+else:
+    print(f"❌ .env file not found at: {dotenv_path}")
+
+# ✅ Debug: Check if OPENAI_APIKEY is loaded
+OPENAI_APIKEY = os.getenv("OPENAI_APIKEY")
+
+if not OPENAI_APIKEY:
+    print("❌ OPENAI_APIKEY is still not set! Check your .env file location and format.")
+else:
+    print("✅ OPENAI_APIKEY successfully loaded!")
+
+
+def is_docker_running():
+    """Check if Docker is running."""
+    try:
+        result = subprocess.run(["docker", "info"], capture_output=True, text=True)
+        return "Server Version" in result.stdout
+    except FileNotFoundError:
+        return False
+
+def start_docker():
+    """Start Docker if it's not running (Windows-specific)."""
+    print("🐳 Attempting to start Docker...")
+    try:
+        subprocess.run(["powershell", "-Command", "Start-Process 'C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe' -NoNewWindow"], check=True)
+        time.sleep(10)  # Give Docker time to start
+        return is_docker_running()
+    except Exception as e:
+        print(f"❌ Error starting Docker: {e}")
+        return False
 
 def connect_to_weaviate():
     """Establishes a fresh connection to Weaviate"""
@@ -28,41 +66,51 @@ def connect_to_weaviate():
 
 def fetch_user_profile(user_id):
     """Retrieves the full user profile from Weaviate."""
-    client = weaviate.connect_to_local(port=8080, grpc_port=50051)
-    
-    user_profiles = client.collections.get("UserProfiles")
-    
-    response = user_profiles.query.fetch_objects(
-        filters=Filter.by_property("user_id").equal(user_id),
-        limit=1  # There should only be one user profile per user
-    )
-    
-    client.close()
-    
-    if response.objects:
-        return response.objects[0].properties  # ✅ Return all profile fields
-    else:
-        print(f"⚠️ No profile found for user `{user_id}`.")
-        return None
-
-def fetch_long_term_memories(user_id):
-    """Fetches long-term memories for a user from Weaviate."""
     try:
         client = weaviate.connect_to_local(port=8080, grpc_port=50051)
-        long_term_memories = client.collections.get("LongTermMemories")
+        user_profiles = client.collections.get("UserProfiles")
 
-        # ✅ Fix: Apply correct sorting
-        response = long_term_memories.query.fetch_objects(
-            return_properties=["memory", "timestamp", "reinforced_count"],
+        response = user_profiles.query.fetch_objects(
             filters=Filter.by_property("user_id").equal(user_id),
-            limit=5,  # Adjust as needed
-            sort=Sort.by_property(name="reinforced_count", ascending=False)  # Sort by most reinforced first
+            limit=1  # There should only be one user profile per user
+        )
+
+        return response.objects[0].properties if response.objects else None
+
+    except Exception as e:
+        print(f"❌ Error fetching user profile: {e}")
+        return None
+
+    finally:
+        client.close()  # ✅ Ensures client always closes
+
+def fetch_long_term_memories(user_id, limit=3):
+    """Fetches long-term memories using hybrid search (vector + keyword)."""
+    try:
+        client = weaviate.connect_to_local()
+        collection = client.collections.get("LongTermMemories")
+
+        response = collection.query.hybrid(
+            query=f"user {user_id}",
+            alpha=0.7,  # Mixes keyword & vector search (0 = full keyword, 1 = full vector)
+            return_properties=["memory", "reinforced_count"],
+            filters=Filter.by_property("user_id").equal(user_id),
+            return_metadata=MetadataQuery(creation_time=True),  # ✅ Fetch metadata timestamps
+            limit=limit
         )
 
         client.close()
 
-        # ✅ Extract and return the memory list
-        return [obj.properties for obj in response.objects]
+        if response.objects:
+            return [
+                {
+                    **o.properties,
+                    "timestamp": o.metadata.creation_time  # ✅ Correct metadata
+                }
+                for o in response.objects
+            ]
+        else:
+            return []
 
     except Exception as e:
         print(f"❌ Error fetching long-term memories: {e}")
@@ -70,59 +118,37 @@ def fetch_long_term_memories(user_id):
 
 def fetch_recent_conversations(user_id, limit=3):
     """Retrieves the last `limit` recent conversations for a user."""
-    client = weaviate.connect_to_local(port=8080, grpc_port=50051)
-
-    recent_conversations = client.collections.get("RecentConversations")
-
-    response = recent_conversations.query.fetch_objects(
-        filters=Filter.by_property("user_id").equal(user_id),
-        limit=limit,
-        sort=Sort.by_property(name="timestamp", ascending=False)  # Sort by newest conversations first
-
-    )
-
-    client.close()
-
-    if response.objects:
-        return [obj.properties for obj in response.objects]  # ✅ Return all fields
-    else:
-        print(f"⚠️ No recent conversations found for user `{user_id}`.")
-        return []
-
-def fetch_user_memory(user_id):
-    """Fetches memory about a specific user from Weaviate."""
     try:
-        client = weaviate.connect_to_local(port=8080, grpc_port=50051)
+        client = weaviate.connect_to_local()
+        recent_conversations = client.collections.get("RecentConversations")
 
-        # ✅ Define the query to fetch user memory
-        user_memory_collection = client.collections.get("UserMemory")
-
-        response = user_memory_collection.query.fetch_objects(
-            return_properties=[
-                "name", "pronouns", "role", "relationship_notes", "interaction_count",
-                "last_conversation", "memories"
-            ],
+        response = recent_conversations.query.fetch_objects(
             filters=Filter.by_property("user_id").equal(user_id),
-            limit=1  # ✅ Only fetch the most relevant entry
+            limit=limit,
+            sort=Sort.by_property("_creationTimeUnix", ascending=False),  # ✅ FIXED!
+            return_metadata=wvc.query.MetadataQuery(creation_time=True)  # ✅ Correct metadata query
         )
 
-        client.close()  # ✅ Always close the client after querying
+        client.close()
 
-        # ✅ Check if we found data
-        if not response.objects:
-            print(f"⚠️ No memory found for user `{user_id}`.")
-            return None
-
-        # ✅ Extract and return the user memory object
-        user_data = response.objects[0].properties
-        return user_data
+        if response.objects:
+            return [
+                {
+                    **o.properties,
+                    "timestamp": o.metadata.creation_time  # ✅ Correct timestamp handling
+                }
+                for o in response.objects
+            ]
+        else:
+            print(f"⚠️ No recent conversations found for user `{user_id}`.")
+            return []
 
     except Exception as e:
-        print(f"❌ Error retrieving user memory: {e}")
-        return None
+        print(f"❌ Error fetching recent conversations: {e}")
+        return []
 
 def load_weaviate_schema():
-    """Loads the Weaviate schema from YAML file using Weaviate v4 format."""
+    """Loads the Weaviate schema from YAML file, ensuring Weaviate is fully ready first."""
     client = connect_to_weaviate()
     
     if not client:
@@ -131,14 +157,29 @@ def load_weaviate_schema():
 
     schema_path = "data/weaviate_schema.yaml"
     if not os.path.exists(schema_path):
-        print(f"❌ Schema file not found: {schema_path}. Make sure it exists before running RESET.")
+        print(f"❌ Schema file not found: {schema_path}. Ensure it exists before running RESET.")
+        return False
+
+    # ✅ Wait for leader election (Weaviate might need time)
+    max_attempts = 10
+    for attempt in range(max_attempts):
+        try:
+            response = requests.get(f"{WEAVIATE_URL}/v1/meta", timeout=3)
+            if response.status_code == 200:
+                print("✅ Weaviate leader elected. Ready to load schema.")
+                break
+        except requests.RequestException:
+            print(f"⏳ Waiting for Weaviate leader election... ({attempt + 1}/{max_attempts})")
+            time.sleep(2)
+    else:
+        print("❌ Weaviate leader was not elected in time. Aborting schema load.")
         return False
 
     try:
         with open(schema_path, "r", encoding="utf-8") as file:
             schema = yaml.safe_load(file)
 
-        # ✅ Get list of existing collections using Weaviate v4 method
+        # ✅ Get list of existing collections
         existing_collections = [col.name for col in client.collections.list_all()]
 
         for collection in schema["classes"]:
@@ -147,11 +188,10 @@ def load_weaviate_schema():
             if collection_name not in existing_collections:
                 print(f"🚀 Creating collection: {collection_name}")
 
-                # ✅ Fix: Extract first item from `dataType` list
                 properties = [
                     wvc.config.Property(
                         name=prop["name"],
-                        data_type=wvc.config.DataType[prop["dataType"][0].upper()],  # ✅ Fix here
+                        data_type=wvc.config.DataType[prop["dataType"][0].upper()],
                     )
                     for prop in collection["properties"]
                 ]
@@ -174,84 +214,80 @@ def load_weaviate_schema():
         client.close()
         return False
 
-def is_weaviate_running_quick():
-    """A fast check to see if Weaviate is responding."""
+def is_weaviate_running():
+    """Check if Weaviate is running inside Docker."""
     try:
-        response = requests.get(f"{WEAVIATE_URL}/v1/meta", timeout=1)  # ✅ Shorter timeout
-        return response.status_code == 200
-    except requests.RequestException:
+        result = subprocess.run(["docker", "ps", "--filter", f"name={DOCKER_CONTAINER_NAME}", "--format", "{{.Names}}"],
+                                capture_output=True, text=True)
+        return DOCKER_CONTAINER_NAME in result.stdout.strip()
+    except FileNotFoundError:
         return False
 
-def is_weaviate_fully_ready(retries=10, delay=2):
-    """A deeper check that waits until Weaviate is fully online."""
+def is_weaviate_fully_ready(retries=10, delay=3):
+    """Check if Weaviate is fully initialized and the leader is elected."""
+    print("⏳ Checking if Weaviate is fully ready...")
     for attempt in range(retries):
-        if is_weaviate_running_quick():
-            return True  # ✅ Weaviate is ready!
-        
-        print(f"⏳ Waiting for Weaviate to fully start... ({attempt + 1}/{retries})")
+        try:
+            response = requests.get(f"{WEAVIATE_URL}/v1/meta", timeout=2)
+            if response.status_code == 200:
+                leader_check = requests.get(f"{WEAVIATE_URL}/v1/schema")
+                if leader_check.status_code == 200:
+                    print("✅ Weaviate leader elected. Ready to load schema.")
+                    return True
+                elif leader_check.status_code == 403:
+                    print("⏳ Leader not found yet. Retrying...")
+            else:
+                print("⏳ Weaviate is starting. Waiting...")
+        except requests.RequestException:
+            print("⏳ Weaviate not reachable. Waiting...")
         time.sleep(delay)
-
-    print("❌ Weaviate check failed after multiple attempts.")
+    print("❌ Weaviate failed to become ready in time.")
     return False
 
 def stop_weaviate():
-    """Stops the Weaviate container immediately without waiting."""
-    if not is_weaviate_running_quick():
-        print("⚠️ Weaviate is already stopped.")
-        return True
-
-    print("🛑 Stopping Weaviate...")
+    """Stops the Weaviate container without removing it."""
     try:
-        subprocess.run(["docker", "stop", DOCKER_CONTAINER_NAME], check=True)
-        print("✅ Weaviate successfully stopped.")
-        return True
+        print("🛑 Stopping Weaviate...")
+        subprocess.run(["docker", "compose", "stop"], check=True)
+        print("✅ Weaviate container stopped successfully.")
     except Exception as e:
         print(f"❌ Error stopping Weaviate: {e}")
-        return False
 
 def start_weaviate():
-    """Starts Weaviate by restarting an existing container if available, or creating a new one if necessary."""
+    """Starts Weaviate if a container exists, otherwise triggers container creation."""
     
-    if is_weaviate_running_quick():
+    if is_weaviate_running():
         print("✅ Weaviate is already running.")
         return True
 
-    # 🔍 Step 1: Check for an existing stopped container
+    # 🔍 Step 1: Check for existing container
     existing_containers = subprocess.run(
         ["docker", "ps", "-a", "--format", "{{.Names}}"],
         capture_output=True, text=True
     ).stdout.split()
 
-    if DOCKER_CONTAINER_NAME in existing_containers:
+    if "weaviate" in existing_containers:
         print("♻️ Restarting existing Weaviate container...")
         try:
-            subprocess.run(["docker", "start", DOCKER_CONTAINER_NAME], check=True)
-
-            # ✅ Ensure Weaviate is fully ready before returning
+            subprocess.run(["docker", "start", "weaviate"], check=True)
             if is_weaviate_fully_ready():
-                print("✅ Weaviate restarted and is fully operational!")
+                print("✅ Weaviate restarted successfully!")
                 return True
-            else:
-                print("⚠️ Weaviate restarted but is not fully ready yet.")
-                return False
-
         except Exception as e:
-            print(f"❌ Error restarting Weaviate container: {e}")
+            print(f"❌ Error restarting Weaviate: {e}")
             return False
+    else:
+        print("🚨 No existing Weaviate container found. Creating a new one...")
+        return create_weaviate_container()
 
-    # 🚀 Step 2: No existing container, create a new one (only for RESET)
-    print("🛑 No existing container found. Creating a fresh Weaviate instance...")
+def create_weaviate_container():
+    """Creates a brand-new Weaviate container using Docker Compose."""
     try:
-        subprocess.run([
-            "docker", "run", "-d", "--restart=always",
-            "--name", DOCKER_CONTAINER_NAME,
-            "-p", "8080:8080",
-            "-p", "50051:50051",
-            DOCKER_IMAGE
-        ], check=True)
+        subprocess.run(["docker", "compose", "up", "-d"], check=True)
 
         if is_weaviate_fully_ready():
             print("✅ New Weaviate container created and started successfully!")
+            initialize_weaviate_data()  # 🚀 Initialize after creation
             return True
 
     except Exception as e:
@@ -259,90 +295,62 @@ def start_weaviate():
         return False
 
     return False
-    
-def restart_weaviate():
-    """Restarts Weaviate efficiently and ensures it is fully ready before continuing."""
-    
-    # 🔍 Step 1: Quick Check - Is Weaviate already running?
-    if not is_weaviate_running_quick():
-        print("⚠️ Cannot restart Weaviate because it's not running. Starting it instead.")
-        return start_weaviate()
 
-    print("🔄 Restarting Weaviate...")
-
-    try:
-        # 🛑 Step 2: Stop Weaviate first
-        stop_weaviate()
-
-        # 🚀 Step 3: Restart Weaviate container
-        subprocess.run(["docker", "restart", DOCKER_CONTAINER_NAME], check=True)
-        
-        print("⏳ Waiting for Weaviate to fully restart...")
-
-        # 🔄 Step 4: Wait for Weaviate to be fully responsive
-        if is_weaviate_fully_ready():
-            print("✅ Weaviate restarted successfully and is ready to use!")
-            return True
-        else:
-            print("❌ Weaviate restarted but is not responding correctly.")
-            return False
-
-    except Exception as e:
-        print(f"❌ Error restarting Weaviate: {e}")
+def initialize_weaviate_data():
+    """Ensures Weaviate has the correct schema and base data after a fresh start."""
+    print("📜 Loading schema into Weaviate...")
+    if not load_weaviate_schema():
+        print("❌ Schema loading failed. Please check the schema file.")
         return False
+
+    print("📂 Inserting base data...")
+    if not insert_base_data():  # ✅ Now this check will work correctly
+        print("❌ Failed to insert base data. Weaviate may be incomplete.")
+        return False  # ✅ Return failure if data insertion didn't work
+
+    print("🎉 Weaviate is fully initialized with schema and base data!")
+    return True
 
 def reset_memory():
-    """Resets Weaviate memory by deleting all data and restoring the core schema and base data."""
-    if is_weaviate_running_quick():
-        print("⚠️ Cannot reset memory while Weaviate is running. Stop Weaviate first.")
-        return False
+    """Resets Weaviate by stopping, deleting volumes, and restarting everything cleanly."""
+    if is_weaviate_running():
+        print("⚠️ Cannot reset memory while Weaviate is running. Stopping first...")
+        stop_weaviate()
 
     confirmation = input("To confirm removal of all of Ash's memories, type: KILL ASH\n> ")
     if confirmation != "KILL ASH":
-        print("❌ Memory reset aborted. Incorrect confirmation input.")
+        print("❌ Memory reset aborted.")
         return False
 
     print("⚠️ Resetting ALL Weaviate memory...")
 
-    # Stop Weaviate first
-    stop_weaviate()
-
-    # Remove the container
     try:
-        subprocess.run(["docker", "rm", "-f", DOCKER_CONTAINER_NAME], check=True)
-        print("✅ Weaviate container removed.")
+        print("🛑 Stopping and removing Weaviate data...")
+        subprocess.run(["docker", "compose", "down", "-v"], check=True)  # ✅ Fully removes volumes
+        print("✅ Weaviate container and data removed.")
+
+        print("🚀 Restarting fresh Weaviate instance...")
+        return create_weaviate_container()
+
     except Exception as e:
-        print(f"❌ Error removing Weaviate container: {e}")
+        print(f"❌ Error resetting Weaviate: {e}")
         return False
 
-    # Restart Weaviate
-    if not start_weaviate():
-        print("❌ Failed to restart Weaviate.")
-        return False
+def restart_weaviate():
+    """Restarts Weaviate using Docker Compose."""
+    if not is_weaviate_running():
+        print("⚠️ Cannot restart Weaviate because it's not running. Starting it instead.")
+        return start_weaviate()
 
-    # 🔄 **Wait Until Weaviate is Fully Ready**
-    if not is_weaviate_fully_ready():
-        print("❌ Weaviate failed to come online after reset.")
-        return False
-
-    # 📜 Load schema
+    print("🔄 Restarting Weaviate...")
     try:
-        load_weaviate_schema()
-        print("✅ Weaviate schema successfully applied!")
-    except Exception as e:
-        print(f"❌ Error applying schema: {e}")
-        return False
+        subprocess.run(["docker", "compose", "restart", "weaviate"], check=True)
+        print("✅ Weaviate restarted successfully!")
+        return True
 
-    # 📂 Insert base data
-    try:
-        insert_base_data()
-        print("✅ Base data successfully inserted into Weaviate.")
     except Exception as e:
-        print(f"❌ Error inserting base data: {e}")
+        print(f"❌ Error restarting Weaviate: {e}")
         return False
-
-    print("🎉 Weaviate has been fully reset with core data!")
-    return True
 
 def insert_base_data():
     """Inserts core data into Weaviate, ensuring correct data types."""
@@ -350,13 +358,14 @@ def insert_base_data():
 
     if not os.path.exists(base_data_path):
         print(f"❌ Base data file not found: {base_data_path}")
-        return False
+        return False  # ✅ Explicit failure return
 
     try:
         client = weaviate.connect_to_local()
-
         with open(base_data_path, "r", encoding="utf-8") as file:
             base_data = json.load(file)
+
+        failed_inserts = 0  # ✅ Track failures
 
         for collection_name, data_list in base_data.items():
             try:
@@ -366,29 +375,35 @@ def insert_base_data():
                 continue
 
             for data in data_list:
-                # ✅ Debug print the data before inserting
                 print(f"📥 Inserting into {collection_name}: {data}")
 
-                # ✅ Force `reinforced_count` to be an integer
-                if collection_name == "LongTermMemories":
-                    if "reinforced_count" in data:
-                        data["reinforced_count"] = int(data["reinforced_count"])  # 🔥 FORCE INTEGER!
+                if collection_name == "LongTermMemories" and "reinforced_count" in data:
+                    data["reinforced_count"] = int(data["reinforced_count"])  # 🔥 Ensure integer
 
-                collection.data.insert(data)
+                try:
+                    collection.data.insert(data)
+                except Exception as e:
+                    print(f"❌ Failed to insert data into {collection_name}: {e}")
+                    failed_inserts += 1  # ✅ Count failed inserts
+
+        client.close()  # ✅ Close connection properly
+
+        if failed_inserts > 0:
+            print(f"❌ {failed_inserts} data entries failed to insert. Weaviate may be incomplete.")
+            return False  # ✅ Return failure only if something went wrong
 
         print("✅ Base data inserted successfully!")
+        return True  # ✅ Explicit success return
 
     except Exception as e:
         print(f"❌ Error inserting base data: {e}")
-
-    finally:
-        client.close()
+        return False  # ✅ Ensure function always returns a boolean
 
 def weaviate_menu():
     """Displays the Weaviate Management Menu with optimized checks."""
     while True:
         # ✅ Use quick check for displaying the menu
-        weaviate_running = is_weaviate_running_quick()
+        weaviate_running = is_weaviate_running()
         status_emoji = "🟢" if weaviate_running else "🔴"
         print(f"\n=== {status_emoji} Weaviate Management Menu {status_emoji} ===")
 
@@ -417,7 +432,7 @@ def weaviate_menu():
             print("❌ Invalid selection. Please choose a valid option.")
 
         # ✅ Refresh menu status
-        weaviate_running = is_weaviate_running_quick()
+        weaviate_running = is_weaviate_running()
 
 if __name__ == "__main__":
     weaviate_menu()

@@ -3,50 +3,49 @@ classes:
     description: "Stores static user details."
     properties:
       - name: user_id
-        dataType: [string]
+        dataType: [TEXT]
         description: "Unique Discord user ID."
         indexInverted: true
       - name: name
-        dataType: [string]
+        dataType: [TEXT]
         description: "User's preferred name."
       - name: pronouns
-        dataType: [string]
+        dataType: [TEXT]
         description: "User's preferred pronouns."
       - name: role
-        dataType: [string]
-        description: "User's role or relationship with Ashbot."
+        dataType: [TEXT]
+        description: "User's role or relationship with Ash."
       - name: relationship_notes
-        dataType: [text]
-        description: "Notes on how Ashbot perceives this user."
+        dataType: [TEXT]
+        description: "Notes on how Ash perceives this user."
 
   - class: LongTermMemories
     description: "Stores evolving user memories."
+    vectorizer: text2vec-openai  # ✅ Enables vector search
+    moduleConfig:
+      text2vec-openai: {}  # ✅ Required for vectorizer to be used
     properties:
       - name: user_id
-        dataType: [string]
+        dataType: [TEXT]
         description: "User's unique Discord ID."
         indexInverted: true
       - name: memory
-        dataType: [text]
-        description: "A memory Ashbot has about the user."
-      - name: timestamp
-        dataType: [date]
-        description: "When this memory was stored."
+        dataType: [TEXT]
+        description: "A memory Ash has about the user."
       - name: reinforced_count
-        dataType: [int]
+        dataType: [INT]  # ✅ Use INT instead of NUMBER
         description: "How many times this memory has been reinforced."
 
   - class: RecentConversations
-    description: "Summaries of user interactions with Ashbot."
+    description: "Summaries of user interactions with Ash."
+    vectorizer: text2vec-openai  # ✅ Enables vector search for conversation summaries
+    moduleConfig:
+      text2vec-openai: {}  # ✅ Required for vectorization
     properties:
       - name: user_id
-        dataType: [string]
+        dataType: [TEXT]
         description: "User's unique Discord ID."
         indexInverted: true
-      - name: timestamp
-        dataType: [date]
-        description: "When the conversation happened."
-        indexInverted: true
       - name: summary
-        dataType: [text]
+        dataType: [TEXT]
         description: "A summary of a recent conversation."

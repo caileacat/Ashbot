@@ -4,18 +4,20 @@ import asyncio
 import discord
 import logging
 import datetime
-import threading  # ✅ Allows running the bot in a separate thread
-import time  # ✅ Needed for adding delay before re-printing the menu
+import threading
+import subprocess
+import time
 from dotenv import load_dotenv
 from discord.ext import commands
 from core.logging_manager import show_logging_menu
-from core.weaviate_manager import weaviate_menu
-from core.startup import initialize_services  # ✅ Run startup checks from the menu
+from core.weaviate_manager import weaviate_menu, start_weaviate, is_weaviate_running
+from core.weaviate_manager import create_weaviate_container, initialize_weaviate_data
 
 # ✅ Load environment variables
 load_dotenv()
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", 0))
+DOCKER_EXE_PATH = r"C:\Program Files\Docker\Docker\Docker Desktop.exe"
 
 # ✅ Set up logging (default to INFO)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -29,7 +31,34 @@ bot = commands.Bot(command_prefix="/", intents=intents)
 bot_running = False
 bot_thread = None
 
-### 🎭 Bot Event: On Ready ###
+### 🐳 Docker Functions ###
+def is_docker_running():
+    """Check if Docker is running."""
+    try:
+        result = subprocess.run(["docker", "info"], capture_output=True, text=True)
+        return "Server Version" in result.stdout
+    except FileNotFoundError:
+        return False
+
+def start_docker():
+    """Attempt to start Docker Desktop on Windows and wait for it."""
+    print("🐳 Docker is not running. Attempting to start...")
+    try:
+        subprocess.run(["powershell", "-Command", f"Start-Process '{DOCKER_EXE_PATH}' -NoNewWindow"], check=True)
+        print("⏳ Waiting for Docker to start...")
+
+        for _ in range(30):  # Wait up to 30 seconds
+            if is_docker_running():
+                print("✅ Docker is now running!")
+                return True
+            time.sleep(1)
+
+        print("❌ Docker did not start in time.")
+        return False
+    except Exception as e:
+        print(f"❌ Error starting Docker: {e}")
+        return False
+
 ### 🎭 Bot Event: On Ready ###
 @bot.event
 async def on_ready():
@@ -86,89 +115,23 @@ def stop_ashbot():
     bot_running = False
     os._exit(0)  # Force stop for now (we will refine this later)
 
-@bot.tree.command(name="ash", description="Talk to Ash")
-async def talk_to_ash(interaction: discord.Interaction, message: str):
-    """Handles the /ash command, ensuring the response doesn't expire before we reply."""
-    print("🚀 `/ash` command was called!")  # ✅ DEBUG LINE
-
-    try:
-        # ✅ Immediately respond so the interaction doesn't expire
-        await interaction.response.send_message("💨 Brb, hitting the bong... give me a sec. ✨", ephemeral=False)
-        
-        # ✅ Get user details
-        user_id = str(interaction.user.id)
-        username = interaction.user.name  
-        timestamp = datetime.datetime.now(datetime.UTC).isoformat()
-
-        # ✅ Fetch memory from Weaviate
-        from core.weaviate_manager import fetch_user_memory
-        user_memory = fetch_user_memory(user_id)
-
-        # ✅ Fetch last five messages in the channel (excluding bots)
-        last_messages = []
-        async for msg in interaction.channel.history(limit=10):
-            if msg.author.bot:
-                continue
-            last_messages.append({
-                "user_id": str(msg.author.id),
-                "message": msg.content,
-                "timestamp": msg.created_at.isoformat()
-            })
-            if len(last_messages) == 5:
-                break  
-
-        # ✅ Replace user IDs with placeholders (Weaviate implementation pending)
-        formatted_messages = [
-            {
-                "user": {
-                    "id": msg["user_id"],
-                    "name": "Unknown",
-                    "pronouns": "they/them"
-                },
-                "message": msg["message"],
-                "timestamp": msg["timestamp"]
-            }
-            for msg in last_messages
-        ]
-
-        # ✅ Structure the message
-        structured_message = {
-            "user": {
-                "id": user_id,
-                "name": user_memory["name"] if user_memory else username,
-                "pronouns": user_memory["pronouns"] if user_memory else "they/them",
-                "role": user_memory["role"] if user_memory else "Unknown",
-                "relationship_notes": user_memory["relationship_notes"] if user_memory else "No relationship data",
-                "interaction_count": user_memory["interaction_count"] if user_memory else 0
-            },
-            "user_message": message,
-            "timestamp": timestamp,
-            "conversation_context": formatted_messages
-        }
-
-        # ✅ Write to debug.txt
-        debug_file_path = "data/debug.txt"
-        with open(debug_file_path, "w", encoding="utf-8") as debug_file:
-            json.dump(structured_message, debug_file, indent=4, ensure_ascii=False)
-        print(f"📝 Debug message written to {debug_file_path}")
-
-        # ✅ Send Ash's "real" response as a NEW message
-        await interaction.channel.send(f"🌿 Back from my sesh! Here's what I got:\n\n📩 `{message}` (Logged to debug.txt)")
-
-    except Exception as e:
-        print(f"❌ Error in /ash command: {e}")
-        await interaction.channel.send("❌ Oops! My brain is too foggy right now. Try again in a bit.")
-
 ### 📝 Console Menu ###
 def show_main_menu():
-    """Displays the main menu for AshBot, with a delay before re-printing."""
+    """Displays the main menu for AshBot."""
     global bot_running
+
+    # ✅ **Ensure Docker is running before anything else**
+    print("🔄 Ensuring Docker is running...")
+    if not is_docker_running():
+        if not start_docker():
+            print("🚨 Docker must be running for AshBot to work. Continuing anyway...")
     
-    # ✅ Run startup checks inside the menu
-    startup_successful = initialize_services()
-    if not startup_successful:
-        print("❌ Startup failed. Exiting...")
-        return
+    # ✅ **Ensure Weaviate is running properly before allowing AshBot to start**
+    print("🔄 Ensuring Weaviate is running...")
+    if not is_weaviate_running():
+        print("🧠 Weaviate is not running. Attempting to start...")
+        if not start_weaviate():
+            print("❌ Weaviate failed to start, but you can manage it from the menu.")
 
     while True:
         time.sleep(3)  # ✅ Waits 3 seconds before re-printing the menu
