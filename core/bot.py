@@ -1,26 +1,25 @@
 import os
+import time
 import json
 import asyncio
 import discord
 import logging
 import datetime
 import threading
-import subprocess
-import time
-from dotenv import load_dotenv
 from discord.ext import commands
+from core.startup import startup_sequence
+from core.message_handler import gather_data_for_chatgpt
+from data.constants import DEBUG_FILE, ASH_BOT_ID, GUILD_ID, DISCORD_BOT_TOKEN
 from core.logging_manager import show_logging_menu
-from core.weaviate_manager import weaviate_menu, start_weaviate, is_weaviate_running
-from core.weaviate_manager import create_weaviate_container, initialize_weaviate_data
+from core.weaviate_manager import (
+    weaviate_menu, is_weaviate_running,
+    fetch_user_profile, fetch_long_term_memories, fetch_recent_conversations, perform_vector_search
+)
 
-# ✅ Load environment variables
-load_dotenv()
-DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", 0))
-DOCKER_EXE_PATH = r"C:\Program Files\Docker\Docker\Docker Desktop.exe"
+logger = logging.getLogger("discord")
 
-# ✅ Set up logging (default to INFO)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+# ✅ Set up logging
+logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(message)s")
 
 # ✅ Set up Discord bot with intents
 intents = discord.Intents.default()
@@ -31,38 +30,133 @@ bot = commands.Bot(command_prefix="/", intents=intents)
 bot_running = False
 bot_thread = None
 
-### 🐳 Docker Functions ###
-def is_docker_running():
-    """Check if Docker is running."""
+### 🎭 Bot Event: On Ready ###
+@bot.event
+async def on_ready():
+    """Triggered when the bot starts and syncs commands."""
     try:
-        result = subprocess.run(["docker", "info"], capture_output=True, text=True)
-        return "Server Version" in result.stdout
-    except FileNotFoundError:
-        return False
+        await asyncio.sleep(3)
+        print("🚀 Checking and syncing commands...")
 
-def start_docker():
-    """Attempt to start Docker Desktop on Windows and wait for it."""
-    print("🐳 Docker is not running. Attempting to start...")
-    try:
-        subprocess.run(["powershell", "-Command", f"Start-Process '{DOCKER_EXE_PATH}' -NoNewWindow"], check=True)
-        print("⏳ Waiting for Docker to start...")
+        # ✅ Resync Commands (BUT DON'T CLEAR THEM)
+        await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
 
-        for _ in range(30):  # Wait up to 30 seconds
-            if is_docker_running():
-                print("✅ Docker is now running!")
-                return True
-            time.sleep(1)
+        # ✅ Delay before fetching commands (let Discord API catch up)
+        await asyncio.sleep(3)
 
-        print("❌ Docker did not start in time.")
-        return False
+        # ✅ Debug: Fetch and print registered commands
+        commands = await bot.tree.fetch_commands(guild=discord.Object(id=GUILD_ID))
+        print(f"📌 Registered commands: {[cmd.name for cmd in commands]}")
+
+        print(f"✅ Logged in as {bot.user} | Commands Re-Synced")
+        print("✅ AshBot is fully ready and online!")
+
     except Exception as e:
-        print(f"❌ Error starting Docker: {e}")
-        return False
+        print(f"❌ Error syncing commands: {e}")
+
+@bot.event
+async def on_disconnect():
+    """Handles unexpected disconnections by attempting reconnection."""
+    logger.warning("🔌 Lost connection to Discord! Attempting to reconnect...")
+
+    for attempt in range(1, 6):  # Try reconnecting up to 5 times
+        wait_time = min(5 * attempt, 60)  # Waits 5, 10, 15... up to 60 seconds
+        await asyncio.sleep(wait_time)
+
+        if bot.is_ready():
+            logger.info("✅ Successfully reconnected to Discord!")
+            return  # Exit loop if reconnect successful
+
+        try:
+            logger.info(f"🔄 Reconnection attempt {attempt}...")
+            await bot.start(DISCORD_BOT_TOKEN)
+        except Exception as e:
+            logger.error(f"🚨 Reconnection failed on attempt {attempt}: {e}")
+
+    logger.critical("❌ Could not reconnect after multiple attempts. Manual restart required.")
+
+### 🗨️ Register the `/ash` command ###
+@bot.tree.command(name="ash", description="Talk to Ash")
+async def talk_to_ash(interaction: discord.Interaction, message: str):
+    """Handles the /ash command."""
+    
+    user_id = str(interaction.user.id)
+
+    # ✅ Pass to async function for processing
+    asyncio.create_task(gather_data_for_chatgpt(user_id, message, interaction.channel))
+
+# async def handle_ash_interaction(user_id, username, message, channel):
+#     """
+#     Collects data for the /ash command, structures it, and logs it for debugging.
+#     """
+
+#     timestamp = datetime.datetime.now(datetime.UTC).isoformat()
+
+#     print("🔄 Collecting data for /ash command...")
+
+#     # ✅ Fetch Last 5 Messages in the Channel
+#     last_messages = []
+#     async for msg in channel.history(limit=10):
+#         if msg.author.bot:
+#             continue
+#         last_messages.append({
+#             "user_id": str(msg.author.id),
+#             "message": msg.content,
+#             "timestamp": msg.created_at.isoformat()
+#         })
+#         if len(last_messages) == 5:
+#             break  
+
+#     # ✅ Fetch User Profile from Weaviate
+#     user_profile = fetch_user_profile(user_id) or {}
+
+#     # ✅ Fetch Long-Term Memories
+#     long_term_memories = fetch_long_term_memories(user_id)
+
+#     # ✅ Fetch Recent Conversations
+#     recent_conversations = fetch_recent_conversations(user_id)
+
+#     # ✅ Perform Vector-Based Memory Search
+#     vector_search_results = perform_vector_search(message)
+
+#     # ✅ Structure the final message object
+#     structured_message = {
+#         "user": {
+#             "id": user_id,
+#             "name": user_profile.get("name", username),
+#             "pronouns": user_profile.get("pronouns", "they/them"),
+#             "role": user_profile.get("role", "Unknown"),
+#             "relationship_notes": user_profile.get("relationship_notes", "No relationship data"),
+#             "interaction_count": user_profile.get("interaction_count", 0),
+#         },
+#         "user_message": message,
+#         "timestamp": timestamp,
+#         "conversation_context": last_messages,
+#         "long_term_memories": long_term_memories,
+#         "recent_conversations": recent_conversations,
+#         "contextual_memories": vector_search_results,  # ✅ NEW: Adding vector search results
+#     }
+
+#     # ✅ Save to debug file for verification
+#     try:
+#         os.makedirs(os.path.dirname(DEBUG_FILE), exist_ok=True)
+#         with open(DEBUG_FILE, "w", encoding="utf-8") as debug_file:
+#             json.dump(structured_message, debug_file, indent=4, ensure_ascii=False)
+
+#         print(f"📝 Debug data successfully written to {DEBUG_FILE}")
+#     except Exception as e:
+#         print(f"❌ Error writing debug file: {e}")
+
+#     return structured_message
 
 ### 🛠️ Bot Controls (Start/Stop) ###
 def run_bot():
     """Runs AshBot in a separate thread."""
     global bot_running
+    logging.getLogger().setLevel(logging.WARNING)
+    logging.getLogger("discord").setLevel(logging.WARNING)
+    logging.getLogger("discord.gateway").setLevel(logging.WARNING)
+    logging.getLogger("discord.client").setLevel(logging.WARNING)
     bot_running = True
     bot.run(DISCORD_BOT_TOKEN)
 
@@ -91,26 +185,11 @@ def stop_ashbot():
 ### 📝 Console Menu ###
 def show_main_menu():
     """Displays the main menu for AshBot."""
-    global bot_running
-
-    # ✅ **Ensure Docker is running before anything else**
-    print("🔄 Ensuring Docker is running...")
-    if not is_docker_running():
-        if not start_docker():
-            print("🚨 Docker must be running for AshBot to work. Continuing anyway...")
-    
-    # ✅ **Ensure Weaviate is running properly before allowing AshBot to start**
-    print("🔄 Ensuring Weaviate is running...")
-    if not is_weaviate_running():
-        print("🧠 Weaviate is not running. Attempting to start...")
-        if not start_weaviate():
-            print("❌ Weaviate failed to start, but you can manage it from the menu.")
-
     while True:
-        time.sleep(3)  # ✅ Waits 3 seconds before re-printing the menu
+        time.sleep(3)
         print("\n=== AshBot Menu ===")
         if bot_running:
-            print("[S] Stop AshBot")  # ✅ Stop option at the top
+            print("[S] Stop AshBot")
         else:
             print("[A] Start AshBot")
             print("[D] Start AshBot with Watchdog")
@@ -132,32 +211,7 @@ def show_main_menu():
         elif choice == "X":
             break
 
-### 🎭 Bot Event: On Ready ###
-@bot.event
-async def on_ready():
-    """Triggered when the bot successfully logs in and registers commands correctly."""
-    try:
-        await asyncio.sleep(5)  # ✅ Allow Discord time to initialize
-        print("🚀 Checking and syncing commands...")
-
-        # ✅ Step 1: Sync all commands normally
-        await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
-        print(f"✅ Logged in as {bot.user} | Commands Re-Synced")
-
-    except discord.app_commands.errors.CommandAlreadyRegistered as e:
-        print(f"⚠️ Command '{e.name}' is already registered. Skipping re-registration.")
-
-    except Exception as e:
-        print(f"❌ Error syncing commands: {e}")
-
-    # ✅ Step 2: Debugging - Print registered commands dynamically
-    try:
-        commands = await bot.tree.fetch_commands(guild=discord.Object(id=GUILD_ID))
-        command_list = [cmd.name for cmd in commands]
-        if command_list:
-            print(f"📌 Registered commands: {command_list}")
-    except Exception as e:
-        print(f"❌ Error fetching registered commands: {e}")
-
 if __name__ == "__main__":
+    if not is_weaviate_running():
+        startup_sequence()
     show_main_menu()

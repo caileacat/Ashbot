@@ -1,3 +1,34 @@
+deactivate
+.venv\Scripts\activate
+python -m core.bot
+
+git add .
+git commit -m "Weaviate menu fully works"
+git push origin feature/channel-messages
+
+is_docker_running()
+start_docker()
+connect_to_weaviate()
+fetch_user_profile(userid)
+fetch_long_term_memories(user_id, Limit=3
+fetch_recent_conversations(userid, Limit=3
+load_weaviate_schema()
+is_weaviate_running()
+is_weaviate_fully_ready(retries=10, deiay=3
+stop_weaviate()
+start_weaviate()
+create_weaviate_container()
+initialize_weaviate_data()
+reset_memory()
+restart_weaviate()
+insert_base_data()
+weaviate_menu()
+
+
+
+
+
+
 # 📌 **Weaviate Connection & Query Guide**
 
 ## **🚀 Connecting to Weaviate**
