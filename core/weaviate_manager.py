@@ -8,14 +8,9 @@ import subprocess
 import weaviate.classes as wvc  # ✅ Required for Weaviate v4 classes
 from weaviate.collections.classes.grpc import Sort # ✅ Import the correct sorting classes
 from weaviate.classes.query import Filter, Sort, MetadataQuery
+from data.constants import WEAVIATE_URL, ASH_BOT_ID, CAILEA_ID
 from dotenv import load_dotenv
 
-# ✅ Constants
-WEAVIATE_URL = "http://localhost:8080"
-DOCKER_CONTAINER_NAME = "weaviate"
-DOCKER_IMAGE = "semitechnologies/weaviate"
-DOCKER_PORT = 8080
-GRPC_PORT = 50051
 
 # ✅ Force loading `.env` from the project's root directory
 dotenv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -62,6 +57,50 @@ def connect_to_weaviate():
         port=8080,
         grpc_port=50051,  # ✅ Explicitly set gRPC port
     )
+
+def perform_vector_search(query_text, user_id):
+    """
+    Searches Weaviate for memories or conversations that are similar to the given query text.
+    Uses vector similarity instead of direct user ID lookups.
+    """
+
+    print("🔍 Performing vector-based search in Weaviate...")
+
+    weaviate_url = "http://localhost:8080/v1/graphql"
+
+    graphql_query = {
+        "query": """
+        {
+            Get {
+                LongTermMemories(
+                    nearText: {
+                        concepts: [""" + json.dumps(query_text) + """]
+                    }
+                    limit: 5
+                ) {
+                    memory
+                    user_id
+                    reinforced_count
+                }
+            }
+        }
+        """
+    }
+
+    try:
+        response = requests.post(weaviate_url, json=graphql_query)
+        response_data = response.json()
+
+        # ✅ Extract memory results
+        memories = response_data.get("data", {}).get("Get", {}).get("LongTermMemories", [])
+        formatted_results = [{"user_id": mem["user_id"], "memory": mem["memory"]} for mem in memories]
+
+        print(f"✅ Found {len(formatted_results)} contextually relevant memories.")
+        return formatted_results
+
+    except Exception as e:
+        print(f"❌ Error in vector search: {e}")
+        return []
 
 def fetch_user_profile(user_id):
     """Retrieves the full user profile from Weaviate."""
@@ -114,6 +153,29 @@ def fetch_long_term_memories(user_id, limit=3):
     except Exception as e:
         print(f"❌ Error fetching long-term memories: {e}")
         return []
+
+async def fetch_recent_messages(channel):
+    """
+    Fetches up to 5 recent messages from the channel, stopping at AshBot's last message.
+    """
+
+    messages = []
+    async for msg in channel.history(limit=10):
+        if msg.author.bot and msg.author.id != ASH_BOT_ID:
+            continue  # Skip bots, except Ash
+        if msg.author.id == ASH_BOT_ID:
+            break  # Stop at AshBot's last message
+
+        messages.append({
+            "user_id": str(msg.author.id),
+            "message": msg.content,
+            "timestamp": msg.created_at.isoformat()
+        })
+
+        if len(messages) == 5:
+            break  # Limit to 5 messages
+
+    return messages
 
 def fetch_recent_conversations(user_id, limit=3):
     """Retrieves the last `limit` recent conversations for a user."""
@@ -498,6 +560,7 @@ def weaviate_menu():
         if weaviate_running:
             print("[S] Stop Weaviate")
             print("[R] Restart Weaviate")
+            print("[Q] Query Weaviate Data")
         else:
             print("[W] Start Weaviate")
             print("[RESET] Reset ALL Memory to default")
@@ -511,6 +574,11 @@ def weaviate_menu():
             stop_weaviate()
         elif choice == "R" and weaviate_running:
             restart_weaviate()
+        elif choice == "Q":
+            test_user_id = input("Enter User ID to query: ").strip() or CAILEA_ID
+            test_message = input("Enter a message for vector search (or leave blank): ").strip() or None
+            import test_queries
+            test_queries.test_queries(test_user_id, test_message)
         elif choice == "RESET" and not weaviate_running:
             reset_memory()
         elif choice == "X":

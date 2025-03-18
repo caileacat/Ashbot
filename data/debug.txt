@@ -1,49 +1,49 @@
 {
-    "user_message": {
-        "content": {
-            "user": {
-                "id": "851181959933591554",
-                "name": "Cailea",
-                "pronouns": "she/they",
-                "role": "Creator, Boss",
-                "relationship_notes": "The Creator of Ash. 🖤 Best friend!",
-                "interaction_count": 0
-            },
-            "user_message": "hi are you here",
-            "timestamp": "2025-03-17T17:34:25.090024+00:00",
-            "conversation_context": [
-                {
-                    "user_id": "1131718649154121748",
-                    "message": "u good! I am just nosy",
-                    "timestamp": "2025-03-15T10:36:18.634000+00:00"
-                },
-                {
-                    "user_id": "851181959933591554",
-                    "message": "Oh I was testing something with the roles thing lol\nSorry I mute this channel since I just use it to test the bots",
-                    "timestamp": "2025-03-15T04:36:06.049000+00:00"
-                },
-                {
-                    "user_id": "1131718649154121748",
-                    "message": "what is that",
-                    "timestamp": "2025-03-11T20:01:08.400000+00:00"
-                }
-            ],
-            "long_term_memories": [
-                {
-                    "reinforced_count": 3,
-                    "memory": "Cailea loves horror movies.",
-                    "timestamp": "2025-03-17T01:10:23.620000+00:00"
-                }
-            ],
-            "recent_conversations": [
-                {
-                    "user_id": "851181959933591554",
-                    "summary": "Cailea asked Ash about horror movie recommendations.",
-                    "timestamp": "2025-03-17T01:10:23.776000+00:00"
-                }
-            ]
+    "user": {
+        "id": "851181959933591554",
+        "name": "Cailea",
+        "pronouns": "she/they",
+        "role": "Creator, Boss",
+        "relationship_notes": "The Creator of Ash. 🖤 Best friend!",
+        "interaction_count": 0
+    },
+    "user_message": "this time maybe?",
+    "timestamp": "2025-03-18T18:33:42.613160+00:00",
+    "conversation_context": [
+        {
+            "user_id": "1131718649154121748",
+            "message": "u good! I am just nosy",
+            "timestamp": "2025-03-15T10:36:18.634000+00:00"
         },
-        "user_id": "851181959933591554",
-        "timestamp": "2025-03-17T17:34:29.488771+00:00"
-    }
+        {
+            "user_id": "851181959933591554",
+            "message": "Oh I was testing something with the roles thing lol\nSorry I mute this channel since I just use it to test the bots",
+            "timestamp": "2025-03-15T04:36:06.049000+00:00"
+        },
+        {
+            "user_id": "1131718649154121748",
+            "message": "what is that",
+            "timestamp": "2025-03-11T20:01:08.400000+00:00"
+        }
+    ],
+    "long_term_memories": [
+        {
+            "reinforced_count": 3,
+            "memory": "Cailea loves horror movies.",
+            "timestamp": "2025-03-18 02:58:13.262000+00:00"
+        }
+    ],
+    "recent_conversations": [
+        {
+            "user_id": "851181959933591554",
+            "summary": "Cailea asked Ash about horror movie recommendations.",
+            "timestamp": "2025-03-18 02:58:13.598000+00:00"
+        }
+    ],
+    "related_conversations": [
+        {
+            "user_id": "851181959933591554",
+            "memory": "Cailea loves horror movies."
+        }
+    ]
 }

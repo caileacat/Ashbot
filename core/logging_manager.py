@@ -1,7 +1,7 @@
 import logging
 
 # ✅ Set up logging (default to INFO)
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 
 def set_logging_level(level):
     """Changes the logging level dynamically, including discord.py loggers."""
@@ -16,8 +16,6 @@ def set_logging_level(level):
     if level in level_map:
         new_level = level_map[level]
         logging.getLogger().setLevel(new_level)
-
-        # ✅ Apply new logging level to discord.py loggers
         logging.getLogger("discord").setLevel(new_level)
         logging.getLogger("discord.gateway").setLevel(new_level)
         logging.getLogger("discord.client").setLevel(new_level)

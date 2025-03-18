@@ -1,31 +1,25 @@
 import os
 import time
+import json
 import asyncio
 import discord
 import logging
 import datetime
 import threading
-import subprocess
-from dotenv import load_dotenv
 from discord.ext import commands
 from core.startup import startup_sequence
+from core.message_handler import gather_data_for_chatgpt
+from data.constants import DEBUG_FILE, ASH_BOT_ID, GUILD_ID, DISCORD_BOT_TOKEN
 from core.logging_manager import show_logging_menu
 from core.weaviate_manager import (
-    weaviate_menu, start_weaviate, is_weaviate_running,
-    fetch_user_profile, fetch_long_term_memories, fetch_recent_conversations
+    weaviate_menu, is_weaviate_running,
+    fetch_user_profile, fetch_long_term_memories, fetch_recent_conversations, perform_vector_search
 )
-from core.message_handler import send_to_chatgpt  # ✅ Import message handler
 
 logger = logging.getLogger("discord")
 
-# ✅ Load environment variables
-load_dotenv()
-DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-GUILD_ID = int(os.getenv("DISCORD_GUILD_ID", 0))
-DOCKER_EXE_PATH = r"C:\Program Files\Docker\Docker\Docker Desktop.exe"
-
 # ✅ Set up logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(message)s")
 
 # ✅ Set up Discord bot with intents
 intents = discord.Intents.default()
@@ -48,7 +42,7 @@ async def on_ready():
         await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
 
         # ✅ Delay before fetching commands (let Discord API catch up)
-        await asyncio.sleep(2)
+        await asyncio.sleep(3)
 
         # ✅ Debug: Fetch and print registered commands
         commands = await bot.tree.fetch_commands(guild=discord.Object(id=GUILD_ID))
@@ -86,78 +80,83 @@ async def on_disconnect():
 async def talk_to_ash(interaction: discord.Interaction, message: str):
     """Handles the /ash command."""
     
-    await interaction.response.send_message("💨 Processing... Hang tight! 🌿", ephemeral=False)
+    user_id = str(interaction.user.id)
 
-    try:
-        user_id = str(interaction.user.id)
-        username = interaction.user.name
-        timestamp = datetime.datetime.now(datetime.UTC).isoformat()
+    # ✅ Pass to async function for processing
+    asyncio.create_task(gather_data_for_chatgpt(user_id, message, interaction.channel))
 
-        # ✅ Check if Weaviate is running **before making requests**
-        if not is_weaviate_running():
-            await interaction.channel.send("⚠️ Weaviate is currently down! Using basic responses.")
-            structured_message = {
-                "user": {
-                    "id": user_id,
-                    "name": username,
-                    "interaction_count": 0,
-                },
-                "user_message": message,
-                "timestamp": timestamp,
-                "conversation_context": [],
-                "long_term_memories": [],
-                "recent_conversations": [],
-            }
-        else:
-            # ✅ Fetch User Data from Weaviate
-            user_profile = fetch_user_profile(user_id) or {}
-            long_term_memories = fetch_long_term_memories(user_id)
-            recent_conversations = fetch_recent_conversations(user_id)
+# async def handle_ash_interaction(user_id, username, message, channel):
+#     """
+#     Collects data for the /ash command, structures it, and logs it for debugging.
+#     """
 
-            # ✅ Fetch Last 5 Messages in the Channel
-            last_messages = []
-            async for msg in interaction.channel.history(limit=10):
-                if msg.author.bot:
-                    continue
-                last_messages.append({
-                    "user_id": str(msg.author.id),
-                    "message": msg.content,
-                    "timestamp": msg.created_at.isoformat()
-                })
-                if len(last_messages) == 5:
-                    break  
+#     timestamp = datetime.datetime.now(datetime.UTC).isoformat()
 
-            # ✅ Structure the message
-            structured_message = {
-                "user": {
-                    "id": user_id,
-                    "name": user_profile.get("name", username),
-                    "pronouns": user_profile.get("pronouns", "they/them"),
-                    "role": user_profile.get("role", "Unknown"),
-                    "relationship_notes": user_profile.get("relationship_notes", "No relationship data"),
-                    "interaction_count": user_profile.get("interaction_count", 0),
-                },
-                "user_message": message,
-                "timestamp": timestamp,
-                "conversation_context": last_messages,
-                "long_term_memories": long_term_memories,
-                "recent_conversations": recent_conversations,
-            }
+#     print("🔄 Collecting data for /ash command...")
 
-        # ✅ Log the data to `debug.txt`
-        send_to_chatgpt(structured_message, user_id)
+#     # ✅ Fetch Last 5 Messages in the Channel
+#     last_messages = []
+#     async for msg in channel.history(limit=10):
+#         if msg.author.bot:
+#             continue
+#         last_messages.append({
+#             "user_id": str(msg.author.id),
+#             "message": msg.content,
+#             "timestamp": msg.created_at.isoformat()
+#         })
+#         if len(last_messages) == 5:
+#             break  
 
-        # ✅ Notify that processing is done
-        await interaction.channel.send(f"🌿 Got it, {username}! Let me think... (Data logged to debug.txt)")
+#     # ✅ Fetch User Profile from Weaviate
+#     user_profile = fetch_user_profile(user_id) or {}
 
-    except Exception as e:
-        print(f"❌ Error in /ash command: {e}")
-        await interaction.channel.send("❌ Oops! My brain is too foggy right now. Try again in a bit.")
+#     # ✅ Fetch Long-Term Memories
+#     long_term_memories = fetch_long_term_memories(user_id)
+
+#     # ✅ Fetch Recent Conversations
+#     recent_conversations = fetch_recent_conversations(user_id)
+
+#     # ✅ Perform Vector-Based Memory Search
+#     vector_search_results = perform_vector_search(message)
+
+#     # ✅ Structure the final message object
+#     structured_message = {
+#         "user": {
+#             "id": user_id,
+#             "name": user_profile.get("name", username),
+#             "pronouns": user_profile.get("pronouns", "they/them"),
+#             "role": user_profile.get("role", "Unknown"),
+#             "relationship_notes": user_profile.get("relationship_notes", "No relationship data"),
+#             "interaction_count": user_profile.get("interaction_count", 0),
+#         },
+#         "user_message": message,
+#         "timestamp": timestamp,
+#         "conversation_context": last_messages,
+#         "long_term_memories": long_term_memories,
+#         "recent_conversations": recent_conversations,
+#         "contextual_memories": vector_search_results,  # ✅ NEW: Adding vector search results
+#     }
+
+#     # ✅ Save to debug file for verification
+#     try:
+#         os.makedirs(os.path.dirname(DEBUG_FILE), exist_ok=True)
+#         with open(DEBUG_FILE, "w", encoding="utf-8") as debug_file:
+#             json.dump(structured_message, debug_file, indent=4, ensure_ascii=False)
+
+#         print(f"📝 Debug data successfully written to {DEBUG_FILE}")
+#     except Exception as e:
+#         print(f"❌ Error writing debug file: {e}")
+
+#     return structured_message
 
 ### 🛠️ Bot Controls (Start/Stop) ###
 def run_bot():
     """Runs AshBot in a separate thread."""
     global bot_running
+    logging.getLogger().setLevel(logging.WARNING)
+    logging.getLogger("discord").setLevel(logging.WARNING)
+    logging.getLogger("discord.gateway").setLevel(logging.WARNING)
+    logging.getLogger("discord.client").setLevel(logging.WARNING)
     bot_running = True
     bot.run(DISCORD_BOT_TOKEN)
 
