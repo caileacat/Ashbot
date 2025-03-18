@@ -2,7 +2,6 @@ import os
 import time
 import yaml
 import json
-import docker
 import weaviate
 import requests
 import subprocess
@@ -215,13 +214,22 @@ def load_weaviate_schema():
         return False
 
 def is_weaviate_running():
-    """Check if Weaviate is running inside Docker."""
-    try:
-        result = subprocess.run(["docker", "ps", "--filter", f"name={DOCKER_CONTAINER_NAME}", "--format", "{{.Names}}"],
-                                capture_output=True, text=True)
-        return DOCKER_CONTAINER_NAME in result.stdout.strip()
-    except FileNotFoundError:
-        return False
+    """Check if Weaviate is running and responsive."""
+    urls = [
+        "http://localhost:8080/v1/meta",  # Works when calling from the host machine
+        "http://weaviate:8080/v1/meta"    # Works when calling from inside the Docker network
+    ]
+
+    for url in urls:
+        try:
+            response = requests.get(url, timeout=3)
+            if response.status_code == 200:
+                print(f"✅ Weaviate is running and reachable at {url}")
+                return True
+        except requests.exceptions.RequestException:
+            print(f"⚠️ Weaviate is NOT reachable at {url}")
+
+    return False
 
 def is_weaviate_fully_ready(retries=10, delay=3):
     """Check if Weaviate is fully initialized and the leader is elected."""
@@ -245,22 +253,56 @@ def is_weaviate_fully_ready(retries=10, delay=3):
     return False
 
 def stop_weaviate():
-    """Stops the Weaviate container without removing it."""
+    """Stops Weaviate using docker-compose, ensuring it is fully stopped."""
+    print("🛑 Attempting to stop Weaviate...")
+
+    # ✅ Step 1: Check if Weaviate is running
+    if not is_weaviate_running():
+        print("✅ Weaviate is already stopped.")
+        return True
+
     try:
-        print("🛑 Stopping Weaviate...")
-        subprocess.run(["docker", "compose", "stop"], check=True)
-        print("✅ Weaviate container stopped successfully.")
+        # ✅ Step 2: Try stopping with Docker Compose
+        print("📌 Stopping Weaviate using docker-compose...")
+        result = subprocess.run(["docker-compose", "stop", "weaviate"], capture_output=True, text=True)
+
+        if result.returncode == 0:
+            print("✅ Weaviate has been stopped successfully.")
+        else:
+            print(f"❌ Failed to stop Weaviate with docker-compose: {result.stderr}")
+
+        # ✅ Step 3: Verify Weaviate is actually stopped
+        if not is_weaviate_running():
+            return True  # Successfully stopped
+
     except Exception as e:
         print(f"❌ Error stopping Weaviate: {e}")
 
+    # ✅ Step 4: Fallback to stopping with `docker stop`
+    print("🔪 Force stopping Weaviate using docker stop...")
+    result = subprocess.run(["docker", "stop", "weaviate"], capture_output=True, text=True)
+    
+    if result.returncode == 0:
+        print("✅ Weaviate stopped successfully using docker stop.")
+    else:
+        print(f"❌ Failed to stop Weaviate with docker stop: {result.stderr}")
+
+    # ✅ **Final check (Only ONE confirmation message!)**
+    if is_weaviate_running():
+        print("❌ Weaviate is still running. Check logs for errors.")
+        return False
+
+    print("✅ Weaviate is now fully stopped.")
+    return True
+
 def start_weaviate():
-    """Starts Weaviate if a container exists, otherwise triggers container creation."""
+    """Starts Weaviate if a container exists, otherwise let the caller handle creation."""
     
     if is_weaviate_running():
         print("✅ Weaviate is already running.")
         return True
 
-    # 🔍 Step 1: Check for existing container
+    # 🔍 Check for existing stopped Weaviate container
     existing_containers = subprocess.run(
         ["docker", "ps", "-a", "--format", "{{.Names}}"],
         capture_output=True, text=True
@@ -276,24 +318,53 @@ def start_weaviate():
         except Exception as e:
             print(f"❌ Error restarting Weaviate: {e}")
             return False
-    else:
-        print("🚨 No existing Weaviate container found. Creating a new one...")
-        return create_weaviate_container()
+
+    print("⚠️ Weaviate container does not exist. Caller should create a new one.")
+    return False  # ✅ This prevents the recursive loop
 
 def create_weaviate_container():
-    """Creates a brand-new Weaviate container using Docker Compose."""
-    try:
-        subprocess.run(["docker", "compose", "up", "-d"], check=True)
+    """Ensure Weaviate is running using docker-compose, not standalone."""
+    print("🔄 Checking Docker and Weaviate setup...")
 
-        if is_weaviate_fully_ready():
-            print("✅ New Weaviate container created and started successfully!")
-            initialize_weaviate_data()  # 🚀 Initialize after creation
-            return True
+    # ✅ Ensure Docker is running
+    if not is_docker_running():
+        print("🐳 Docker is not running. Trying to start it...")
+        if not start_docker():
+            print("❌ Failed to start Docker. Weaviate cannot run.")
+            return False
 
-    except Exception as e:
-        print(f"❌ Error creating Weaviate container: {e}")
+    # ✅ Check if Weaviate is already running
+    if is_weaviate_running():
+        print("✅ Weaviate is already running.")
+        return True
+
+    # 🗑 Remove any stopped Weaviate container **if it exists**
+    print("🗑 Removing any existing Weaviate container before starting fresh...")
+    subprocess.run(["docker-compose", "down", "-v"], check=False)  # Removes old container and volume
+
+    # 📥 Pull the latest images (Ensures everything is up-to-date)
+    print("📥 Pulling latest Weaviate image via docker-compose...")
+    result = subprocess.run(["docker-compose", "pull"], capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"❌ Error pulling Weaviate image: {result.stderr}")
         return False
 
+    # 🚀 Start Weaviate using `docker-compose up`
+    print("🚀 Starting Weaviate stack using docker-compose...")
+    result = subprocess.run(["docker-compose", "up", "--build", "-d"], capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"❌ Error starting Weaviate stack: {result.stderr}")
+        return False
+
+    # ✅ Wait for Weaviate to be fully ready
+    print("⏳ Waiting for Weaviate to become available...")
+    for _ in range(10):
+        if is_weaviate_running():
+            print("🎉 Weaviate (with schema) is fully initialized and ready!")
+            return True
+        time.sleep(3)
+
+    print("❌ Weaviate did not fully start in time.")
     return False
 
 def initialize_weaviate_data():
@@ -312,11 +383,14 @@ def initialize_weaviate_data():
     return True
 
 def reset_memory():
-    """Resets Weaviate by stopping, deleting volumes, and restarting everything cleanly."""
+    """Fully resets Weaviate by deleting all data, ensuring container removal, and restarting cleanly with schema & base data."""
+    
+    # ✅ Step 1: Ensure Weaviate is stopped
     if is_weaviate_running():
         print("⚠️ Cannot reset memory while Weaviate is running. Stopping first...")
         stop_weaviate()
 
+    # ✅ Step 2: Confirmation prompt
     confirmation = input("To confirm removal of all of Ash's memories, type: KILL ASH\n> ")
     if confirmation != "KILL ASH":
         print("❌ Memory reset aborted.")
@@ -325,12 +399,26 @@ def reset_memory():
     print("⚠️ Resetting ALL Weaviate memory...")
 
     try:
+        # ✅ Step 3: Stop and remove all Weaviate-related resources
         print("🛑 Stopping and removing Weaviate data...")
-        subprocess.run(["docker", "compose", "down", "-v"], check=True)  # ✅ Fully removes volumes
+        subprocess.run(["docker", "compose", "down", "-v"], check=True)  # ✅ Removes volumes & network
+        subprocess.run(["docker", "rm", "-f", "weaviate"], capture_output=True, text=True)  # ✅ Ensures the container is removed
         print("✅ Weaviate container and data removed.")
 
+        # ✅ Step 4: Restart fresh Weaviate stack using docker-compose
         print("🚀 Restarting fresh Weaviate instance...")
-        return create_weaviate_container()
+        if not create_weaviate_container():
+            print("❌ Failed to recreate Weaviate.")
+            return False
+
+        # ✅ Step 5: Initialize Weaviate schema & insert base data
+        print("📜 Initializing schema & inserting base data...")
+        if not initialize_weaviate_data():
+            print("❌ Failed to initialize Weaviate data.")
+            return False
+
+        print("🎉 Weaviate reset complete! Ready to go.")
+        return True
 
     except Exception as e:
         print(f"❌ Error resetting Weaviate: {e}")

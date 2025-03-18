@@ -43,3 +43,4 @@ def show_logging_menu():
             break
         else:
             set_logging_level(choice)
+            break

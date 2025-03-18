@@ -26,10 +26,17 @@ def send_to_chatgpt(message, user_id):
         }
     }
 
+    # ✅ Convert datetime objects before dumping JSON
+    def json_serial(obj):
+        """JSON serializer for objects not serializable by default"""
+        if isinstance(obj, datetime.datetime):
+            return obj.isoformat()
+        raise TypeError("Type not serializable")
+
     # ✅ Debug output to file
     try:
         with open(DEBUG_FILE, "w", encoding="utf-8") as debug_file:
-            json.dump(debug_data, debug_file, indent=4, ensure_ascii=False)
+            json.dump(debug_data, debug_file, indent=4, ensure_ascii=False, default=json_serial)
         print(f"📝 Debug message written to {DEBUG_FILE}")
     except Exception as e:
         print(f"❌ Error writing debug message: {e}")
