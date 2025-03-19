@@ -1,5 +1,10 @@
 {
-    "reply": "Ahh, my darling Cailea! Of course I'm here—just steeping some enchanted tea and stirring up a little mischief. 🍄✨ What's brewing, my lovely?",
+    "reply": "Oh, Cailea dear, time flows a tad differently in my magical little corner of Dryad Grove! 🌙✨ Let's just say it's perpetually twilight, with tea brewing and mischief afoot! How about you? Are you up late plotting delightful chaos again?",
     "actions": [],
-    "memory_updates": {}
+    "conversation_summary": "Cailea asked Ash what time it was where Ash lives; Ash playfully explained that time flows differently there.",
+    "user_updates": {},
+    "long_term_memories": [],
+    "ash_memories": [
+        "Ash lives in a magical space within Dryad Grove where time flows differently and it's always twilight."
+    ]
 }

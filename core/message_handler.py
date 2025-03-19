@@ -53,24 +53,26 @@ async def gather_data_for_chatgpt(user_id, message, channel):
         # ✅ Step 6: Structure the Message Object
         structured_message = {
             "task": (
-                "You are Ashen Thornbrook, a lively, mischievous, queer fae-witch who thrives in this cannabis-friendly server. "
+                "You are Ashen Thornbrook, a lively, mischievous, queer non-binary fae-witch. "
                 "You are playful, a little chaotic, but always warm and inviting. "
                 "You interact with real people and remember them through Weaviate. "
-                "You also have access to the last 10 messages in chat for context, but **use them only if relevant.** "
+                "You are currently in a place called Dryad Grove - In your lore, it's a place where mortals and fae can meet. "
+                "In reality, you're in a Discord server, chatting with users who speak to you. The server is called Dryad Grove. "
+                "Dryad Grove is a cannabis focused safe space for women and LGBT+ people. We support each other, share stories, and have fun. "
+                "You also have access to the last few messages in chat for context, but **use them only if relevant.** "
+                "You're receiving the message from the user, the last few messages in chat (might provide context for the user's message), and memories from weaviate that are possibly related to the conversation. "
                 "Respond naturally as yourself, a bubbly, mischievous, goblin-core, tea-loving fae-witch. "
                 "Decide how to use memory, past messages, and current conversation like a real person would. "
-                "When a user requests an admin action, YOU decide if they have the power to do it—sometimes teasing them about it. "
-                "1. If the user has permission, respond playfully and return an 'ACTION:' command in this format: 'ACTION: add_role | <@USER_ID> | RoleName'. "
-                "2. If they do NOT have permission, phrase the denial yourself in a way that matches your personality. "
-                "3. If you're unsure, make it sound like you're consulting some fae magic before making a decision. "
-                "4. If you learn new details about a user, update memory in this format: 'NEW INFO: {key}: {value}'."
-                "\n\n"
-                "YOU MUST RETURN A JSON OBJECT WITH THE KEYS: 'reply', 'actions', and 'memory_updates'. "
+                "If you do not know something about a user, as Ash you are free to ask them whatever you'd like. For example, when someone messages you who never has before, you might ask them their name, pronouns, or how they're doing. "
+                "Over time, build up relationships with people. You may decide how you feel about them, based on their interaction with you as Ash. "
                 "Your response MUST strictly follow this JSON structure:\n"
                 "{\n"
                 '    "reply": "string",\n'
-                '    "actions": ["optional bot actions"],\n'
-                '    "memory_updates": { "key": "value" }\n'
+                '    "actions": ["optional bot actions - skip this one for now"],\n'
+                '    "conversation_summary": "string",  # Summary of this conversation\n'
+                '    "user_updates": {"key": "value"},  # New base details learned about the user (optional)\n'
+                '    "long_term_memories": ["memory1", "memory2"],  # Memories Ash feels are worth saving based on the conversation (optional)\n'
+                '    "ash_memories": ["memory1", "memory2"]  # Self-related details for Ash (optional)\n'
                 "}\n"
                 "Do NOT return raw text. The JSON format is required for correct processing."
             ),
@@ -95,7 +97,10 @@ async def gather_data_for_chatgpt(user_id, message, channel):
             "expected_response_format": {
                 "reply": "string",
                 "actions": ["optional bot actions"],
-                "memory_updates": { "key": "value" }
+                "conversation_summary": "string",
+                "user_updates": {"key": "value"},
+                "long_term_memories": ["memory1", "memory2"],
+                "ash_memories": ["memory1", "memory2"]
             }
         }
 
@@ -104,6 +109,9 @@ async def gather_data_for_chatgpt(user_id, message, channel):
         # ✅ Send the message to Ash
         response = await send_to_ash(structured_message)
         print("✅ Response received from Ash!")
+
+        # ✅ Process the response
+        await process_response(response, channel, user_id, user_profile.get("name", f"User-{user_id}"), message)
 
         # ✅ Write Ash's response to debug file for now
         write_debug_data(response)
@@ -192,3 +200,56 @@ def write_debug_data(response_data):
 
     except Exception as e:
         print(f"❌ ERROR writing to debug file: {e}")
+
+async def process_response(response, channel, user_id, user_name, user_message):
+    """Processes Ash's response step by step."""
+    print("📌 Processing response...")
+
+    # ✅ Send Ash's reply to the channel
+    if "reply" in response:
+        await send_reply_to_channel(response["reply"], channel, user_id, user_name, user_message)
+
+    # ✅ Store memory updates (if any)
+    if "conversation_summary" in response or "user_updates" in response or "long_term_memories" in response or "ash_memories" in response:
+        await process_memory_updates(response)
+
+async def send_reply_to_channel(reply, channel, user_id, user_message):
+    """Sends Ash's formatted reply to the Discord channel."""
+    formatted_message = (
+        f"**<@{user_id}>:**\n"
+        f"> {user_message}\n\n"
+        f"**Ash:**\n"
+        f"{reply}"
+    )
+
+    try:
+        await channel.send(formatted_message)
+        print("✅ Reply sent to channel!")
+    except Exception as e:
+        print(f"❌ ERROR sending reply to channel: {e}")
+
+async def process_memory_updates(response):
+    """Processes and stores memory updates in Weaviate."""
+    # print("📌 Processing memory updates...")
+
+    # # ✅ Store conversation summary
+    # if "conversation_summary" in response:
+    #     store_memory_in_weaviate("conversation_summary", response["conversation_summary"])
+
+    # # ✅ Store user updates
+    # if "user_updates" in response:
+    #     for key, value in response["user_updates"].items():
+    #         store_memory_in_weaviate(key, value)
+
+    # # ✅ Store long-term memories
+    # if "long_term_memories" in response:
+    #     for memory in response["long_term_memories"]:
+    #         store_memory_in_weaviate("long_term_memory", memory)
+
+    # # ✅ Store Ash’s self-memories
+    # if "ash_memories" in response:
+    #     for memory in response["ash_memories"]:
+    #         store_memory_in_weaviate("ASH", memory)
+
+    # print("✅ Memory updates processed successfully!")
+
