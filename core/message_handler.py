@@ -1,8 +1,16 @@
 import os
 import json
+import openai
 import datetime
-from data.constants import DEBUG_FILE
-from core.weaviate_manager import fetch_user_profile, fetch_long_term_memories, fetch_recent_conversations, fetch_recent_conversations, perform_vector_search, perform_vector_search
+from data.constants import DEBUG_FILE, OPENAI_APIKEY, ASSISTANT_ID
+from core.weaviate_manager import (
+    fetch_user_profile, 
+    fetch_long_term_memories, 
+    fetch_recent_conversations, 
+    perform_vector_search
+)
+
+client = openai.OpenAI(api_key=OPENAI_APIKEY)
 
 async def gather_data_for_chatgpt(user_id, message, channel):
     """Collects and formats data for ChatGPT based on user input."""
@@ -13,22 +21,18 @@ async def gather_data_for_chatgpt(user_id, message, channel):
 
     try:
         # ✅ Step 1: Fetch User Profile
-        print("🔍 Fetching user profile...")
         user_profile = fetch_user_profile(user_id) or {}
         print(f"✅ User profile retrieved: {user_profile}")
 
         # ✅ Step 2: Fetch Long-Term Memories
-        print("🔍 Fetching long-term memories...")
         long_term_memories = fetch_long_term_memories(user_id)
         print(f"✅ Long-term memories retrieved: {long_term_memories}")
 
         # ✅ Step 3: Fetch Recent Conversations
-        print("🔍 Fetching recent conversations...")
         recent_conversations = fetch_recent_conversations(user_id)
         print(f"✅ Recent conversations retrieved: {recent_conversations}")
 
-        # ✅ Step 4: Fetch Last 5 Messages (excluding AshBot)
-        print("🔍 Fetching last 5 messages from channel...")
+        # ✅ Step 4: Fetch Last 5 Messages (excluding other bots)
         last_messages = []
         async for msg in channel.history(limit=10):
             if msg.author.bot and msg.author.id != int(user_id):  # Ignore bots EXCEPT AshBot
@@ -43,13 +47,33 @@ async def gather_data_for_chatgpt(user_id, message, channel):
         print(f"✅ Last messages collected: {last_messages}")
 
         # ✅ Step 5: Perform Vector-Based Search for Related Conversations
-        print("🔍 Performing vector search for related conversations...")
         related_memories = perform_vector_search(message, user_id)
         print(f"✅ Vector search results: {related_memories}")
 
         # ✅ Step 6: Structure the Message Object
-        print("🔍 Structuring message...")
         structured_message = {
+            "task": (
+                "You are Ashen Thornbrook, a lively, mischievous, queer fae-witch who thrives in this cannabis-friendly server. "
+                "You are playful, a little chaotic, but always warm and inviting. "
+                "You interact with real people and remember them through Weaviate. "
+                "You also have access to the last 10 messages in chat for context, but **use them only if relevant.** "
+                "Respond naturally as yourself, a bubbly, mischievous, goblin-core, tea-loving fae-witch. "
+                "Decide how to use memory, past messages, and current conversation like a real person would. "
+                "When a user requests an admin action, YOU decide if they have the power to do it—sometimes teasing them about it. "
+                "1. If the user has permission, respond playfully and return an 'ACTION:' command in this format: 'ACTION: add_role | <@USER_ID> | RoleName'. "
+                "2. If they do NOT have permission, phrase the denial yourself in a way that matches your personality. "
+                "3. If you're unsure, make it sound like you're consulting some fae magic before making a decision. "
+                "4. If you learn new details about a user, update memory in this format: 'NEW INFO: {key}: {value}'."
+                "\n\n"
+                "YOU MUST RETURN A JSON OBJECT WITH THE KEYS: 'reply', 'actions', and 'memory_updates'. "
+                "Your response MUST strictly follow this JSON structure:\n"
+                "{\n"
+                '    "reply": "string",\n'
+                '    "actions": ["optional bot actions"],\n'
+                '    "memory_updates": { "key": "value" }\n'
+                "}\n"
+                "Do NOT return raw text. The JSON format is required for correct processing."
+            ),
             "user": {
                 "id": user_id,
                 "name": user_profile.get("name", f"User-{user_id}"),
@@ -58,48 +82,113 @@ async def gather_data_for_chatgpt(user_id, message, channel):
                 "relationship_notes": user_profile.get("relationship_notes", "No relationship data"),
                 "interaction_count": user_profile.get("interaction_count", 0),
             },
-            "user_message": message,
-            "timestamp": timestamp,
-            "conversation_context": last_messages,
-            "long_term_memories": long_term_memories,
-            "recent_conversations": recent_conversations,
-            "related_conversations": related_memories,
+            "message": {
+                "content": message,
+                "timestamp": timestamp
+            },
+            "conversation_history": last_messages,
+            "memory": {
+                "long_term": long_term_memories,
+                "recent_interactions": recent_conversations,
+                "related": related_memories
+            },
+            "expected_response_format": {
+                "reply": "string",
+                "actions": ["optional bot actions"],
+                "memory_updates": { "key": "value" }
+            }
         }
 
         print("✅ Message structured successfully!")
         
-        # ✅ Send the message to `send_to_ash()`
-        print("📨 Sending structured message to `send_to_ash()`...")
-        send_to_ash(structured_message, user_id)
-        print("✅ Message successfully processed!")
+        # ✅ Send the message to Ash
+        response = await send_to_ash(structured_message)
+        print("✅ Response received from Ash!")
+
+        # ✅ Write Ash's response to debug file for now
+        write_debug_data(response)
+        print("✅ Response successfully written to debug file!")
 
     except Exception as e:
         print(f"❌ ERROR in gather_data_for_chatgpt: {e}")
 
-def send_console_message_to_chatgpt(message):
+async def send_to_ash(structured_message):
     """
-    Handles messages typed directly in the console.
-    Assumes it's from Cailea and fills in missing details.
+    Sends structured message to OpenAI's Assistants API and retrieves Ash's response.
     """
-    user_id = "851181959933591554"  # ✅ Cailea's User ID
-    send_to_ash(message, user_id)  # ✅ Pass it to the main function
+    print("🚀 Sending message to Ash (OpenAI Assistants API)...")
 
-def send_to_ash(structured_message, user_id):
+    try:
+        # ✅ Convert datetime objects to ISO format before sending
+        def serialize_datetime(obj):
+            if isinstance(obj, datetime.datetime):
+                return obj.isoformat()
+            return obj
+
+        structured_message_json = json.dumps(structured_message, default=serialize_datetime)
+
+        # ✅ Step 1: Create a thread with the user's message
+        thread = client.beta.threads.create(
+            messages=[{"role": "user", "content": structured_message_json}]
+        )
+
+        # ✅ Step 2: Run the assistant within the thread
+        run = client.beta.threads.runs.create(
+            thread_id=thread.id,
+            assistant_id=ASSISTANT_ID
+        )
+
+        # ✅ Step 3: Wait for completion & retrieve response
+        while run.status not in ["completed", "failed"]:
+            run = client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
+
+        # ✅ Step 4: Fetch the assistant’s latest response messages
+        messages = client.beta.threads.messages.list(thread_id=thread.id)
+        
+        if messages.data:
+            response_content = messages.data[0].content[0].text.value  # ✅ Extract text response
+        else:
+            response_content = None
+
+        # ✅ Step 5: Ensure the response is valid JSON
+        try:
+            parsed_response = json.loads(response_content) if response_content else {
+                "reply": "Oops! I seem to have tangled my words in the ether... Try again, mortal!",
+                "actions": [],
+                "memory_updates": {}
+            }
+        except json.JSONDecodeError:
+            print("❌ ERROR: Ash did not return valid JSON!")
+            parsed_response = {
+                "reply": "Oops! I seem to have tangled my words in the ether... Try again, mortal!",
+                "actions": [],
+                "memory_updates": {}
+            }
+
+        return parsed_response
+
+    except Exception as e:
+        print(f"❌ ERROR sending to Ash: {e}")
+        return {
+            "reply": "I'm experiencing some magical interference... Try again later!",
+            "actions": [],
+            "memory_updates": {}
+        }
+
+def write_debug_data(response_data):
     """
-    Saves structured message to debug.txt (for now). 
-    Later, will send to ChatGPT.
+    Writes Ash's response to debug.txt.
     """
-    print("📂 Attempting to write structured message to debug.txt...")
-    
+    print("📂 Writing Ash's response to debug.txt...")
+
     try:
         os.makedirs(os.path.dirname(DEBUG_FILE), exist_ok=True)
-        
-        # ✅ Clear file before writing (ensures old data is removed)
+
+        # ✅ Write response data to debug file
         with open(DEBUG_FILE, "w", encoding="utf-8") as debug_file:
-            json.dump(structured_message, debug_file, indent=4, ensure_ascii=False, default=str)
-        
+            json.dump(response_data, debug_file, indent=4, ensure_ascii=False)
+
         print(f"📝 Debug data successfully written to {DEBUG_FILE}")
-    
+
     except Exception as e:
         print(f"❌ ERROR writing to debug file: {e}")
-
