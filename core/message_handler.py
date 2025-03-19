@@ -111,7 +111,7 @@ async def gather_data_for_chatgpt(user_id, message, channel):
         print("✅ Response received from Ash!")
 
         # ✅ Process the response
-        await process_response(response, channel, user_id, user_profile.get("name", f"User-{user_id}"), message)
+        await process_response(response, channel, user_id, message)
 
         # ✅ Write Ash's response to debug file for now
         write_debug_data(response)
@@ -201,13 +201,13 @@ def write_debug_data(response_data):
     except Exception as e:
         print(f"❌ ERROR writing to debug file: {e}")
 
-async def process_response(response, channel, user_id, user_name, user_message):
+async def process_response(response, channel, user_id, user_message):
     """Processes Ash's response step by step."""
     print("📌 Processing response...")
 
     # ✅ Send Ash's reply to the channel
     if "reply" in response:
-        await send_reply_to_channel(response["reply"], channel, user_id, user_name, user_message)
+        await send_reply_to_channel(response["reply"], channel, user_id, user_message)
 
     # ✅ Store memory updates (if any)
     if "conversation_summary" in response or "user_updates" in response or "long_term_memories" in response or "ash_memories" in response:
