@@ -3,30 +3,47 @@ deactivate
 python -m core.bot
 
 git add .
-git commit -m "Weaviate menu fully works"
-git push origin feature/channel-messages
+git commit -m "Commit notes"
+git push origin CURRENT_BRANCH_NAME
+go to the branch on GitHub and create a pull request, then merge it into main, then delete the branch in GitHub
+git checkout -b NEW_BRANCH_NAME
+git push -u origin NEW_BRANCH_NAME
+git branch -D CURRENT_BRANCH_NAME
+git fetch --prune
+git remote prune origin
 
-is_docker_running()
-start_docker()
-connect_to_weaviate()
-fetch_user_profile(userid)
-fetch_long_term_memories(user_id, Limit=3
-fetch_recent_conversations(userid, Limit=3
-load_weaviate_schema()
-is_weaviate_running()
-is_weaviate_fully_ready(retries=10, deiay=3
-stop_weaviate()
-start_weaviate()
-create_weaviate_container()
-initialize_weaviate_data()
-reset_memory()
-restart_weaviate()
-insert_base_data()
-weaviate_menu()
+Does exist? :: Invoke-RestMethod -Uri "http://localhost:8080/v1/meta" -Method Get
+
+Has data? :: Invoke-RestMethod -Uri "http://localhost:8080/v1/graphql" -Method Post -Headers @{"Content-Type"="application/json"} -Body '{"query": "{ Get { UserMemory { user_id name pronouns role relationship_notes memory } } }"}'
+
+RESET data? :: Invoke-RestMethod -Uri "http://localhost:8080/v1/graphql" -Method Post -Headers @{"Content-Type"="application/json"} -Body '{"query": "mutation { Create { UserMemory(user_id: \"123456789\", name: \"TestUser\", pronouns: \"they/them\", role: \"Tester\", relationship_notes: \"Testing insertion\", memory: [\"Test memory entry\"] ) } }"}'
+
+Check Schema :: Invoke-RestMethod -Uri "http://localhost:8080/v1/schema" -Method Get
 
 
-
-
+def upsert_user_memory(user_id, name=None, pronouns=None, role=None, relationship_notes=None, new_memory=None):
+def insert_recent_conversation(user_id, summary):
+def add_ash_memory(new_memory):
+def insert_data(class_name, objects):
+def is_docker_running():
+def start_docker():
+def connect_to_weaviate():
+def perform_vector_search(query_text):
+def fetch_user_profile(user_id):
+def fetch_long_term_memories(user_id):
+async def fetch_recent_messages(channel):
+def fetch_recent_conversations(user_id, limit=3):
+def load_weaviate_schema():
+def is_weaviate_running():
+def is_weaviate_fully_ready(retries=10, delay=3):
+def stop_weaviate():
+def start_weaviate():
+def create_weaviate_container():
+def initialize_weaviate_data():
+def reset_memory():
+def restart_weaviate():
+def insert_base_data():
+def weaviate_menu():
 
 
 # 📌 **Weaviate Connection & Query Guide**
@@ -67,7 +84,7 @@ pip install weaviate-client
 import weaviate
 
 # Connect to a local instance of Weaviate
-client = weaviate.connect_to_local(port=8080, grpc_port=50051)
+client = weaviate.connect_to_local() 
 
 if client.is_ready():
     print("✅ Successfully connected to Weaviate!")

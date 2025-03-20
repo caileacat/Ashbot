@@ -5,31 +5,324 @@ import json
 import weaviate
 import requests
 import subprocess
-import weaviate.classes as wvc  # ✅ Required for Weaviate v4 classes
-from weaviate.collections.classes.grpc import Sort # ✅ Import the correct sorting classes
-from weaviate.classes.query import Filter, Sort, MetadataQuery
-from data.constants import WEAVIATE_URL, ASH_BOT_ID, CAILEA_ID
-from dotenv import load_dotenv
+import weaviate.classes as wvc
+from weaviate.classes.query import Filter
+from data.constants import WEAVIATE_URL, CAILEA_ID, BASE_MEMORIES, OPENAI_API_KEY
+
+URLS =  [
+        "http://localhost:8080/v1/meta",  # Works when calling from the host machine
+        "http://weaviate:8080/v1/meta"    # Works when calling from inside the Docker network
+        ]
 
 
-# ✅ Force loading `.env` from the project's root directory
-dotenv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
+def convert_lists_to_json(obj):
+    """
+    Converts list values to JSON strings before inserting into Weaviate.
+    Ensures all list-based fields are properly formatted.
+    """
+    for key, value in obj.items():
+        if isinstance(value, list):  # ✅ If it's a list, convert it to a JSON string
+            obj[key] = json.dumps(value)
+    return obj
 
-# ✅ Load the .env file explicitly
-if os.path.exists(dotenv_path):
-    load_dotenv(dotenv_path)
-    print(f"✅ Loaded .env from: {dotenv_path}")
-else:
-    print(f"❌ .env file not found at: {dotenv_path}")
+def convert_json_to_lists(obj):
+    """
+    Converts JSON strings back to lists when retrieving from Weaviate.
+    Ensures consistency in how lists are handled in memory.
+    """
+    for key, value in obj.items():
+        if isinstance(value, str):  # ✅ If it's a string, check if it's a JSON list
+            try:
+                parsed_value = json.loads(value)
+                if isinstance(parsed_value, list):
+                    obj[key] = parsed_value  # ✅ Convert it back to a list
+            except json.JSONDecodeError:
+                pass  # Ignore if it's not valid JSON
+    return obj
 
-# ✅ Debug: Check if OPENAI_APIKEY is loaded
-OPENAI_APIKEY = os.getenv("OPENAI_APIKEY")
+### **🔹 Helper: Connect to Weaviate**
+def connect_to_weaviate():
+    """Connects to Weaviate using the Python v4 client and ensures a stable connection."""
+    try:
+        client = weaviate.connect_to_local(headers={"X-OpenAI-Api-Key": OPENAI_API_KEY})
+        print("✅ Connected to Weaviate successfully!")
+        return client
+    except Exception as e:
+        print(f"❌ ERROR: Failed to connect to Weaviate: {e}")
+        return None
 
-if not OPENAI_APIKEY:
-    print("❌ OPENAI_APIKEY is still not set! Check your .env file location and format.")
-else:
-    print("✅ OPENAI_APIKEY successfully loaded!")
+### **🔹 Upsert User Memory (Profile & Long-Term Memory)**
+def upsert_user_memory(user_id, name=None, pronouns=None, role=None, relationship_notes=None, new_memory=None):
+    """
+    Inserts or updates user details and long-term memories into Weaviate.
+    """
+    client = connect_to_weaviate()
+    if not client:
+        return False
 
+    try:
+        user_collection = client.collections.get("UserMemory")
+        user_profile = user_collection.query.fetch_objects(
+            filters=Filter.by_property("user_id").equal(user_id),
+            limit=1
+        )
+
+        existing_user = user_profile.objects[0] if user_profile.objects else None
+
+        # ✅ Prepare data for insert/update
+        update_data = {
+            "user_id": user_id,
+            "name": name or existing_user.properties.get("name", ""),
+            "pronouns": pronouns or existing_user.properties.get("pronouns", ""),
+            "role": role or existing_user.properties.get("role", ""),
+            "relationship_notes": relationship_notes or existing_user.properties.get("relationship_notes", ""),
+            "memory": json.dumps(existing_user.properties.get("memory", []) + [new_memory]) if new_memory else existing_user.properties.get("memory", "[]")
+        }
+
+        if existing_user:
+            user_collection.data.replace(uuid=existing_user.uuid, properties=update_data)
+            print(f"🔄 Updated UserMemory for {user_id}")
+        else:
+            user_collection.data.insert(properties=update_data)
+            print(f"✅ Inserted new UserMemory for {user_id}")
+
+    except Exception as e:
+        print(f"❌ ERROR in upsert_user_memory: {e}")
+
+    finally:
+        client.close()
+
+### **🔹 Insert Recent Conversation**
+def insert_recent_conversation(user_id, summary):
+    """Stores a conversation summary in Weaviate."""
+    client = connect_to_weaviate()
+    if not client:
+        return False
+
+    try:
+        conversation_collection = client.collections.get("RecentConversations")
+        conversation_collection.data.insert(properties={"user_id": user_id, "summary": summary})
+        print(f"✅ Inserted RecentConversation for {user_id}")
+
+    except Exception as e:
+        print(f"❌ ERROR inserting recent conversation: {e}")
+
+    finally:
+        if client and client.is_connected():
+            client.close()
+
+def insert_data(class_name, objects):
+    """
+    Inserts multiple objects into Weaviate.
+    Ensures lists are converted to JSON strings before insertion.
+    """
+    client = connect_to_weaviate()
+    if not client:
+        print(f"❌ Failed to connect to Weaviate for inserting into {class_name}.")
+        return False
+
+    try:
+        collection = client.collections.get(class_name)
+        print(f"📥 Inserting into {class_name}: {len(objects)} records...")
+
+        for obj in objects:
+            # ✅ Ensure all lists are converted to JSON strings
+            obj = convert_lists_to_json(obj)
+
+            try:
+                collection.data.insert(properties=obj)
+                print(f"✅ Successfully inserted into {class_name}: {obj}")
+
+            except Exception as e:
+                print(f"❌ ERROR inserting into {class_name}: {e}")
+
+    except Exception as e:
+        print(f"❌ ERROR accessing collection {class_name}: {e}")
+
+    finally:
+        client.close()
+
+### **🔹 Perform Vector-Based Search**
+def perform_vector_search(query_text):
+    """
+    Searches Weaviate for memories or conversations that are similar to the given query.
+    Uses vector similarity instead of direct lookups.
+    """
+    client = connect_to_weaviate()
+    if not client:
+        return []
+
+    try:
+        user_collection = client.collections.get("UserMemory")
+        response = user_collection.query.near_text(query=query_text, limit=5)
+
+        relevant_memories = [obj.properties for obj in response.objects]
+        print(f"✅ Found {len(relevant_memories)} contextually relevant memories.")
+        return relevant_memories
+
+    except Exception as e:
+        print(f"❌ ERROR in vector search: {e}")
+        return []
+
+    finally:
+        client.close()
+
+### **🔹 Fetch User Profile**
+def fetch_user_profile(user_id):
+    """
+    Retrieves user profile data from Weaviate and converts JSON-encoded lists back to Python lists.
+    """
+    try:
+        client = connect_to_weaviate()
+        collection = client.collections.get("UserMemory")
+
+        response = collection.query.fetch_objects(
+            filters=weaviate.classes.query.Filter.by_property("user_id").equal(user_id),
+            return_properties=["user_id", "name", "pronouns", "role", "relationship_notes", "memory"]
+        )
+
+        if response.objects:
+            user_data = response.objects[0].properties  # ✅ Extract first matching user
+            
+            # ✅ Convert JSON string back to a list
+            if isinstance(user_data.get("memory"), str):
+                try:
+                    user_data["memory"] = json.loads(user_data["memory"])
+                except json.JSONDecodeError:
+                    user_data["memory"] = []  # ✅ Default to empty list if it fails
+
+            return user_data
+
+        return {}  # ✅ Return empty if no user found
+
+    except Exception as e:
+        print(f"❌ ERROR fetching user profile: {e}")
+        return {}
+
+### **🔹 Fetch Long-Term Memories**
+def fetch_long_term_memories(user_id):
+    """Fetches long-term memories from Weaviate and ensures proper format handling."""
+    client = connect_to_weaviate()
+    if not client:
+        return []
+
+    try:
+        # ✅ Use proper Weaviate filter class
+        filter_condition = Filter.by_property("user_id").equal(user_id)
+
+        memory_collection = client.collections.get("UserMemory")
+        results = memory_collection.query.fetch_objects(
+            limit=1,
+            return_properties=["memory"],
+            filters=filter_condition  # ✅ Correct filter usage
+        )
+
+        if results.objects:
+            memory_data = results.objects[0].properties.get("memory", "[]")
+            return json.loads(memory_data) if isinstance(memory_data, str) else memory_data  # ✅ Ensure proper format
+
+    except Exception as e:
+        print(f"❌ ERROR fetching long-term memories: {e}")
+
+    finally:
+        client.close()
+
+    return []
+
+### **🔹 Fetch Recent Conversations**
+def fetch_recent_conversations(user_id, limit=3):
+    """
+    Retrieves the most recent conversations a user has had with Ash.
+    """
+    client = connect_to_weaviate()
+    if not client:
+        return []
+
+    try:
+        conversation_collection = client.collections.get("RecentConversations")
+        response = conversation_collection.query.fetch_objects(
+            filters=Filter.by_property("user_id").equal(user_id),
+            limit=limit
+        )
+
+        conversations = [obj.properties for obj in response.objects]
+        print(f"✅ Retrieved {len(conversations)} recent conversations for {user_id}")
+        return conversations
+
+    except Exception as e:
+        print(f"❌ ERROR fetching recent conversations: {e}")
+        return []
+
+    finally:
+        client.close()
+
+### **🔹 Insert a New Self-Memory for Ash**
+def add_ash_memory(new_memory):
+    """
+    Adds a new memory for Ash, reinforcing existing ones if applicable.
+    """
+    client = connect_to_weaviate()
+    if not client:
+        return False
+
+    try:
+        ash_collection = client.collections.get("AshMemories")
+        response = ash_collection.query.fetch_objects(
+            filters=Filter.by_property("memory").equal(new_memory),
+            limit=1
+        )
+
+        if response.objects:
+            existing_memory = response.objects[0]
+            new_count = existing_memory.properties["reinforced_count"] + 1
+
+            ash_collection.data.replace(uuid=existing_memory.uuid, properties={
+                "memory": new_memory,
+                "reinforced_count": new_count
+            })
+            print(f"🔄 Reinforced Ash memory: {new_memory}")
+
+        else:
+            ash_collection.data.insert(properties={"memory": new_memory, "reinforced_count": 1})
+            print(f"✅ Added new Ash memory: {new_memory}")
+
+    except Exception as e:
+        print(f"❌ ERROR adding Ash memory: {e}")
+
+    finally:
+        client.close()
+
+def load_weaviate_schema():
+    """
+    Loads Weaviate schema from YAML file.
+    """
+    import yaml
+
+    client = connect_to_weaviate()
+
+    try:
+        with open("data/weaviate_schema.yaml", "r", encoding="utf-8") as file:
+            schema = yaml.safe_load(file)
+
+        for collection in schema["classes"]:
+            class_name = collection["class"]
+            existing = client.collections.exists(class_name)
+
+            if not existing:
+                properties = [
+                    weaviate.Property(name=prop["name"], data_type=prop["dataType"][0])
+                    for prop in collection["properties"]
+                ]
+                client.collections.create(name=class_name, properties=properties)
+                print(f"✅ Created collection: {class_name}")
+            else:
+                print(f"⚠️ Collection {class_name} already exists. Skipping.")
+
+    except Exception as e:
+        print(f"❌ Error loading Weaviate schema: {e}")
+
+    finally:
+        client.close()
 
 def is_docker_running():
     """Check if Docker is running."""
@@ -49,164 +342,6 @@ def start_docker():
     except Exception as e:
         print(f"❌ Error starting Docker: {e}")
         return False
-
-def connect_to_weaviate():
-    """Establishes a fresh connection to Weaviate"""
-    return weaviate.connect_to_local(
-        host="localhost",
-        port=8080,
-        grpc_port=50051,  # ✅ Explicitly set gRPC port
-    )
-
-def perform_vector_search(query_text, user_id):
-    """
-    Searches Weaviate for memories or conversations that are similar to the given query text.
-    Uses vector similarity instead of direct user ID lookups.
-    """
-
-    print("🔍 Performing vector-based search in Weaviate...")
-
-    weaviate_url = "http://localhost:8080/v1/graphql"
-
-    graphql_query = {
-        "query": """
-        {
-            Get {
-                LongTermMemories(
-                    nearText: {
-                        concepts: [""" + json.dumps(query_text) + """]
-                    }
-                    limit: 5
-                ) {
-                    memory
-                    user_id
-                    reinforced_count
-                }
-            }
-        }
-        """
-    }
-
-    try:
-        response = requests.post(weaviate_url, json=graphql_query)
-        response_data = response.json()
-
-        # ✅ Extract memory results
-        memories = response_data.get("data", {}).get("Get", {}).get("LongTermMemories", [])
-        formatted_results = [{"user_id": mem["user_id"], "memory": mem["memory"]} for mem in memories]
-
-        print(f"✅ Found {len(formatted_results)} contextually relevant memories.")
-        return formatted_results
-
-    except Exception as e:
-        print(f"❌ Error in vector search: {e}")
-        return []
-
-def fetch_user_profile(user_id):
-    """Retrieves the full user profile from Weaviate."""
-    try:
-        client = weaviate.connect_to_local(port=8080, grpc_port=50051)
-        user_profiles = client.collections.get("UserProfiles")
-
-        response = user_profiles.query.fetch_objects(
-            filters=Filter.by_property("user_id").equal(user_id),
-            limit=1  # There should only be one user profile per user
-        )
-
-        return response.objects[0].properties if response.objects else None
-
-    except Exception as e:
-        print(f"❌ Error fetching user profile: {e}")
-        return None
-
-    finally:
-        client.close()  # ✅ Ensures client always closes
-
-def fetch_long_term_memories(user_id, limit=3):
-    """Fetches long-term memories using hybrid search (vector + keyword)."""
-    try:
-        client = weaviate.connect_to_local()
-        collection = client.collections.get("LongTermMemories")
-
-        response = collection.query.hybrid(
-            query=f"user {user_id}",
-            alpha=0.7,  # Mixes keyword & vector search (0 = full keyword, 1 = full vector)
-            return_properties=["memory", "reinforced_count"],
-            filters=Filter.by_property("user_id").equal(user_id),
-            return_metadata=MetadataQuery(creation_time=True),  # ✅ Fetch metadata timestamps
-            limit=limit
-        )
-
-        client.close()
-
-        if response.objects:
-            return [
-                {
-                    **o.properties,
-                    "timestamp": o.metadata.creation_time  # ✅ Correct metadata
-                }
-                for o in response.objects
-            ]
-        else:
-            return []
-
-    except Exception as e:
-        print(f"❌ Error fetching long-term memories: {e}")
-        return []
-
-async def fetch_recent_messages(channel):
-    """
-    Fetches up to 5 recent messages from the channel, stopping at AshBot's last message.
-    """
-
-    messages = []
-    async for msg in channel.history(limit=10):
-        if msg.author.bot and msg.author.id != ASH_BOT_ID:
-            continue  # Skip bots, except Ash
-        if msg.author.id == ASH_BOT_ID:
-            break  # Stop at AshBot's last message
-
-        messages.append({
-            "user_id": str(msg.author.id),
-            "message": msg.content,
-            "timestamp": msg.created_at.isoformat()
-        })
-
-        if len(messages) == 5:
-            break  # Limit to 5 messages
-
-    return messages
-
-def fetch_recent_conversations(user_id, limit=3):
-    """Retrieves the last `limit` recent conversations for a user."""
-    try:
-        client = weaviate.connect_to_local()
-        recent_conversations = client.collections.get("RecentConversations")
-
-        response = recent_conversations.query.fetch_objects(
-            filters=Filter.by_property("user_id").equal(user_id),
-            limit=limit,
-            sort=Sort.by_property("_creationTimeUnix", ascending=False),  # ✅ FIXED!
-            return_metadata=wvc.query.MetadataQuery(creation_time=True)  # ✅ Correct metadata query
-        )
-
-        client.close()
-
-        if response.objects:
-            return [
-                {
-                    **o.properties,
-                    "timestamp": o.metadata.creation_time  # ✅ Correct timestamp handling
-                }
-                for o in response.objects
-            ]
-        else:
-            print(f"⚠️ No recent conversations found for user `{user_id}`.")
-            return []
-
-    except Exception as e:
-        print(f"❌ Error fetching recent conversations: {e}")
-        return []
 
 def load_weaviate_schema():
     """Loads the Weaviate schema from YAML file, ensuring Weaviate is fully ready first."""
@@ -282,7 +417,7 @@ def is_weaviate_running():
         "http://weaviate:8080/v1/meta"    # Works when calling from inside the Docker network
     ]
 
-    for url in urls:
+    for url in URLS:
         try:
             response = requests.get(url, timeout=3)
             if response.status_code == 200:
@@ -293,7 +428,7 @@ def is_weaviate_running():
 
     return False
 
-def is_weaviate_fully_ready(retries=10, delay=3):
+def is_weaviate_fully_ready(retries=5, delay=3):
     """Check if Weaviate is fully initialized and the leader is elected."""
     print("⏳ Checking if Weaviate is fully ready...")
     for attempt in range(retries):
@@ -458,7 +593,7 @@ def reset_memory():
         print("❌ Memory reset aborted.")
         return False
 
-    print("⚠️ Resetting ALL Weaviate memory...")
+    print("⚠️ Resetting ALL memory...")
 
     try:
         # ✅ Step 3: Stop and remove all Weaviate-related resources
@@ -503,44 +638,13 @@ def restart_weaviate():
         return False
 
 def insert_base_data():
-    """Inserts core data into Weaviate, ensuring correct data types."""
-    base_data_path = "data/base_data.json"
-
-    if not os.path.exists(base_data_path):
-        print(f"❌ Base data file not found: {base_data_path}")
-        return False  # ✅ Explicit failure return
-
     try:
-        client = weaviate.connect_to_local()
-        with open(base_data_path, "r", encoding="utf-8") as file:
-            base_data = json.load(file)
+        for collection_name, data_list in BASE_MEMORIES.items():
+            # ✅ Convert lists to JSON before inserting
+            formatted_data = [convert_lists_to_json(entry) for entry in data_list]
 
-        failed_inserts = 0  # ✅ Track failures
-
-        for collection_name, data_list in base_data.items():
-            try:
-                collection = client.collections.get(collection_name)
-            except Exception:
-                print(f"⚠️ Skipping {collection_name} - Collection does not exist in Weaviate.")
-                continue
-
-            for data in data_list:
-                print(f"📥 Inserting into {collection_name}: {data}")
-
-                if collection_name == "LongTermMemories" and "reinforced_count" in data:
-                    data["reinforced_count"] = int(data["reinforced_count"])  # 🔥 Ensure integer
-
-                try:
-                    collection.data.insert(data)
-                except Exception as e:
-                    print(f"❌ Failed to insert data into {collection_name}: {e}")
-                    failed_inserts += 1  # ✅ Count failed inserts
-
-        client.close()  # ✅ Close connection properly
-
-        if failed_inserts > 0:
-            print(f"❌ {failed_inserts} data entries failed to insert. Weaviate may be incomplete.")
-            return False  # ✅ Return failure only if something went wrong
+            if formatted_data:
+                insert_data(collection_name, formatted_data)  # ✅ Use updated insert_data
 
         print("✅ Base data inserted successfully!")
         return True  # ✅ Explicit success return

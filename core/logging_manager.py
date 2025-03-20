@@ -1,6 +1,6 @@
 import logging
 
-# ✅ Set up logging (default to INFO)
+# ✅ Set up logging (default to WARNING)
 logging.basicConfig(level=logging.WARNING)
 
 def set_logging_level(level):

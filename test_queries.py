@@ -1,5 +1,6 @@
 import sys
 import os
+import json
 
 # Ensure we can import weaviate_manager
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
@@ -8,7 +9,7 @@ from core.weaviate_manager import (
     fetch_user_profile,
     fetch_long_term_memories,
     fetch_recent_conversations,
-    perform_vector_search,  # ✅ New: Vector-based search
+    perform_vector_search,  # ✅ Vector-based search (for both memories & conversations)
 )
 from data.constants import CAILEA_ID
 
@@ -23,6 +24,13 @@ def test_queries(user_id, message=None):
     user_profile = fetch_user_profile(user_id)
     print("\n🔹 User Profile:", user_profile)
 
+    # ✅ Fix: Convert JSON-encoded memory back to list if necessary
+    if isinstance(user_profile.get("memory"), str):
+        try:
+            user_profile["memory"] = json.loads(user_profile["memory"])
+        except json.JSONDecodeError:
+            user_profile["memory"] = []
+
     # ✅ Test Long-Term Memories
     long_term_memories = fetch_long_term_memories(user_id)
     print("\n🔹 Long-Term Memories:", long_term_memories)
@@ -35,9 +43,3 @@ def test_queries(user_id, message=None):
     if message:
         related_conversations = perform_vector_search(message)
         print("\n🔹 Related Conversations (Vector Search):", related_conversations)
-
-if __name__ == "__main__":
-    test_user_id = input("Enter User ID to test: ") or CAILEA_ID # Allows dynamic input
-    test_message = input("Enter a message for vector search (or leave blank): ").strip() or None
-
-    test_queries(test_user_id, test_message)

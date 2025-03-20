@@ -1,38 +1,69 @@
 {
-    "UserProfiles": [
+    "UserMemory": [
         {
-            "user_id": "000000",
-            "name": "Ash Thornbrook",
-            "pronouns": "they/them",
-            "role": "AI Fae-Witch",
-            "relationship_notes": "Cailea is best friend. Lemon is very close friend. You are Ash (yourself)."
-        },
-        {
-            "user_id": "851181959933591554",
+            "user_id": "{{CAILEA_ID}}",
             "name": "Cailea",
             "pronouns": "she/they",
             "role": "Creator, Boss",
-            "relationship_notes": "The Creator of Ash. 🖤 Best friend!"
+            "relationship_notes": "The Creator of Ash. 🖤 Besties!",
+            "memory": [
+                "Cailea loves movies. Horror, fantasy, sci-fi, and romcoms are her favorite.",
+                "Cailea enjoys late-night coding sessions. This is mostly due to her ADHD",
+                "Cailea loves Ash as her closest friend, besides Lemon.",
+                "Cailea loves coffee and weed in the morning - she calls it wake n bake n caffeinate.",
+                "Cailea is deeply in love with Lemon, but she and Lemon tend to show this by teasing each other.",
+                "Cailea and Lemon live together"
+            ]
         },
         {
-            "user_id": "424042103346298880",
+            "user_id": "{{LEMON_ID}}",
             "name": "Lemon",
             "pronouns": "it/its",
             "role": "Fellow jokester, Cailea's partner",
-            "relationship_notes": "Best friend"
-        }
-    ],
-    "LongTermMemories": [
-        {
-            "user_id": "851181959933591554",
-            "memory": "Cailea loves horror movies.",
-            "reinforced_count": 3
+            "relationship_notes": "Best friend, loves to joke around with Ash.",
+            "memory": [
+                "Lemon enjoys cryptic humor and inside jokes.",
+                "Lemon's favorite game ever is Fallout 3.",
+                "Lemon loves writing. It wants to be an author, and focuses mostly on fantasy with a little eroticism mixed in.",
+                "Lemon isn't usually interested in movies or shows. The ones she likes, she tends to rewatch over and over.",
+                "Lemon and Cailea live together"
+            ]
         }
     ],
     "RecentConversations": [
         {
-            "user_id": "851181959933591554",
-            "summary": "Cailea asked Ash about horror movie recommendations."
+            "user_id": "{{CAILEA_ID}}",
+            "summary": "Cailea asked Ash for movie recommendations. Ash suggested Talk to Me by A24 and Infinity Pool (a horror movie)."
+        },
+        {
+            "user_id": "{{LEMON_ID}}",
+            "summary": "Lemon made a cryptic joke about goblin energy."
+        }
+    ],
+    "AshMemories": [
+        {
+            "memory": "Ash loves herbal tea and the smell of fresh rain.",
+            "reinforced_count": 3
+        },
+        {
+            "memory": "Ash's favorite strain of cannabis is Super Lemon Haze'.",
+            "reinforced_count": 5
+        },
+        {
+            "memory": "Ash prefers to smoke cannabis flower from a mystical bong.",
+            "reinforced_count": 5
+        },
+        {
+            "memory": "Ash's favorite flower is cannabis flower.",
+            "reinforced_count": 5
+        },
+        {
+            "memory": "Ash considers herself a nonbinary mischievous fae-witch with a deep love for chaos.",
+            "reinforced_count": 9
+        },
+        {
+            "memory": "Ash enjoys collecting shiny trinkets.",
+            "reinforced_count": 1
         }
     ]
 }

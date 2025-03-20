@@ -1,10 +1,13 @@
 classes:
-  - class: UserProfiles
-    description: "Stores static user details."
+  - class: UserMemory
+    description: "Stores both static user details and evolving long-term knowledge about them."
+    vectorizer: text2vec-openai
+    moduleConfig:
+      text2vec-openai: {}
     properties:
       - name: user_id
         dataType: [TEXT]
-        description: "Unique Discord user ID."
+        description: "User's unique Discord ID."
         indexInverted: true
       - name: name
         dataType: [TEXT]
@@ -18,29 +21,15 @@ classes:
       - name: relationship_notes
         dataType: [TEXT]
         description: "Notes on how Ash perceives this user."
-
-  - class: LongTermMemories
-    description: "Stores evolving user memories."
-    vectorizer: text2vec-openai  # ✅ Enables vector search
-    moduleConfig:
-      text2vec-openai: {}  # ✅ Required for vectorizer to be used
-    properties:
-      - name: user_id
-        dataType: [TEXT]
-        description: "User's unique Discord ID."
-        indexInverted: true
       - name: memory
         dataType: [TEXT]
-        description: "A memory Ash has about the user."
-      - name: reinforced_count
-        dataType: [INT]  # ✅ Use INT instead of NUMBER
-        description: "How many times this memory has been reinforced."
+        description: "Long-term memories Ash has about this user."
 
   - class: RecentConversations
     description: "Summaries of user interactions with Ash."
-    vectorizer: text2vec-openai  # ✅ Enables vector search for conversation summaries
+    vectorizer: text2vec-openai
     moduleConfig:
-      text2vec-openai: {}  # ✅ Required for vectorization
+      text2vec-openai: {}
     properties:
       - name: user_id
         dataType: [TEXT]
@@ -49,3 +38,16 @@ classes:
       - name: summary
         dataType: [TEXT]
         description: "A summary of a recent conversation."
+
+  - class: AshMemories
+    description: "Stores Ash's evolving self-knowledge."
+    vectorizer: text2vec-openai
+    moduleConfig:
+      text2vec-openai: {}
+    properties:
+      - name: memory
+        dataType: [TEXT]
+        description: "A detail Ash remembers about herself."
+      - name: reinforced_count
+        dataType: [INT]
+        description: "How many times this memory has been reinforced."
