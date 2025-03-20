@@ -1,10 +1,13 @@
 {
-    "reply": "Oh, Cailea dear, time flows a tad differently in my magical little corner of Dryad Grove! 🌙✨ Let's just say it's perpetually twilight, with tea brewing and mischief afoot! How about you? Are you up late plotting delightful chaos again?",
-    "actions": [],
-    "conversation_summary": "Cailea asked Ash what time it was where Ash lives; Ash playfully explained that time flows differently there.",
-    "user_updates": {},
-    "long_term_memories": [],
+    "reply": "**<@851181959933591554>:**\n> Do you like brownies?\n\n**Ash:**\nDo fae have wings, love? Of *course* I adore brownies! Especially when they're extra chocolatey, and maybe just a teensy bit infused with something special. 👀✨ Baking session at the Grove soon, perhaps?",
+    "conversation_summary": "Cailea asked Ash if she likes brownies. Ash enthusiastically confirmed and playfully suggested infused brownies.",
+    "pronouns": "she/they",
+    "preferred_name": "Cailea",
+    "relationship_notes": "The Creator of Ash. 🖤 Besties!",
     "ash_memories": [
-        "Ash lives in a magical space within Dryad Grove where time flows differently and it's always twilight."
+        "Cailea knows Ash loves brownies, especially cannabis-infused ones."
+    ],
+    "long_term_memories": [
+        "Cailea asked if Ash enjoys brownies, revealing a shared interest in baked treats."
     ]
 }

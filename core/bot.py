@@ -1,25 +1,21 @@
 import os
 import time
-import json
+import random
 import asyncio
 import discord
 import logging
-import datetime
 import threading
 from discord.ext import commands
 from core.startup import startup_sequence
 from core.message_handler import gather_data_for_chatgpt
-from data.constants import DEBUG_FILE, ASH_BOT_ID, GUILD_ID, DISCORD_BOT_TOKEN
+from data.constants import GUILD_ID, DISCORD_BOT_TOKEN, ASH_EPHEMERAL_MESSAGES
 from core.logging_manager import show_logging_menu
 from core.weaviate_manager import (
-    weaviate_menu, is_weaviate_running,
-    fetch_user_profile, fetch_long_term_memories, fetch_recent_conversations, perform_vector_search
+    weaviate_menu, is_weaviate_running
 )
+from weaviate.classes.query import Filter
 
 logger = logging.getLogger("discord")
-
-# ✅ Set up logging
-logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(message)s")
 
 # ✅ Set up Discord bot with intents
 intents = discord.Intents.default()
@@ -78,76 +74,23 @@ async def on_disconnect():
 ### 🗨️ Register the `/ash` command ###
 @bot.tree.command(name="ash", description="Talk to Ash")
 async def talk_to_ash(interaction: discord.Interaction, message: str):
-    """Handles the /ash command."""
-    
+    """Handles the /ash command and prevents the 'Bot didn't respond' warning with an ephemeral message."""
+
     user_id = str(interaction.user.id)
+    channel = interaction.channel
 
-    # ✅ Pass to async function for processing
-    asyncio.create_task(gather_data_for_chatgpt(user_id, message, interaction.channel))
+    try:
+        # ✅ Randomly select an ephemeral message
+        ephemeral_message = random.choice(ASH_EPHEMERAL_MESSAGES)
 
-# async def handle_ash_interaction(user_id, username, message, channel):
-#     """
-#     Collects data for the /ash command, structures it, and logs it for debugging.
-#     """
+        # ✅ Respond immediately with an ephemeral message
+        await interaction.response.send_message(ephemeral_message, ephemeral=True)
 
-#     timestamp = datetime.datetime.now(datetime.UTC).isoformat()
+        # ✅ Process the request asynchronously without an immediate public response
+        asyncio.create_task(gather_data_for_chatgpt(user_id, message, channel))
 
-#     print("🔄 Collecting data for /ash command...")
-
-#     # ✅ Fetch Last 5 Messages in the Channel
-#     last_messages = []
-#     async for msg in channel.history(limit=10):
-#         if msg.author.bot:
-#             continue
-#         last_messages.append({
-#             "user_id": str(msg.author.id),
-#             "message": msg.content,
-#             "timestamp": msg.created_at.isoformat()
-#         })
-#         if len(last_messages) == 5:
-#             break  
-
-#     # ✅ Fetch User Profile from Weaviate
-#     user_profile = fetch_user_profile(user_id) or {}
-
-#     # ✅ Fetch Long-Term Memories
-#     long_term_memories = fetch_long_term_memories(user_id)
-
-#     # ✅ Fetch Recent Conversations
-#     recent_conversations = fetch_recent_conversations(user_id)
-
-#     # ✅ Perform Vector-Based Memory Search
-#     vector_search_results = perform_vector_search(message)
-
-#     # ✅ Structure the final message object
-#     structured_message = {
-#         "user": {
-#             "id": user_id,
-#             "name": user_profile.get("name", username),
-#             "pronouns": user_profile.get("pronouns", "they/them"),
-#             "role": user_profile.get("role", "Unknown"),
-#             "relationship_notes": user_profile.get("relationship_notes", "No relationship data"),
-#             "interaction_count": user_profile.get("interaction_count", 0),
-#         },
-#         "user_message": message,
-#         "timestamp": timestamp,
-#         "conversation_context": last_messages,
-#         "long_term_memories": long_term_memories,
-#         "recent_conversations": recent_conversations,
-#         "contextual_memories": vector_search_results,  # ✅ NEW: Adding vector search results
-#     }
-
-#     # ✅ Save to debug file for verification
-#     try:
-#         os.makedirs(os.path.dirname(DEBUG_FILE), exist_ok=True)
-#         with open(DEBUG_FILE, "w", encoding="utf-8") as debug_file:
-#             json.dump(structured_message, debug_file, indent=4, ensure_ascii=False)
-
-#         print(f"📝 Debug data successfully written to {DEBUG_FILE}")
-#     except Exception as e:
-#         print(f"❌ Error writing debug file: {e}")
-
-#     return structured_message
+    except Exception as e:
+        print(f"❌ ERROR processing /ash command: {e}")
 
 ### 🛠️ Bot Controls (Start/Stop) ###
 def run_bot():
@@ -192,7 +135,6 @@ def show_main_menu():
             print("[S] Stop AshBot")
         else:
             print("[A] Start AshBot")
-            print("[D] Start AshBot with Watchdog")
         print("[W] Manage Weaviate")
         print("[C] Configure Logging")
         print("[X] Exit AshBot")
@@ -201,8 +143,6 @@ def show_main_menu():
         if choice == "S" and bot_running:
             stop_ashbot()
         elif choice == "A" and not bot_running:
-            start_ashbot()
-        elif choice == "D" and not bot_running:
             start_ashbot()
         elif choice == "W":
             weaviate_menu()

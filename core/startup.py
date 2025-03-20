@@ -1,61 +1,51 @@
 import subprocess
+import logging
 from core.weaviate_manager import (
     is_docker_running,
-    start_docker,
     is_weaviate_running,
     is_weaviate_fully_ready,
-    initialize_weaviate_data,
-    start_weaviate
 )
 
 def startup_sequence():
-    """Ensures Docker and Weaviate are properly initialized before launching the bot."""
+    """Checks if Docker and Weaviate are running and reports their status to the console."""
     print("🔄 [Startup] Running startup sequence...")
 
-    # ✅ Step 1: Check Docker
+    # ✅ Step 1: Check if Docker is running
     print("🔍 Checking if Docker is running...")
-    if not is_docker_running():
-        print("🐳 Docker is not running. Trying to start it...")
-        if not start_docker():
-            print("❌ Failed to start Docker. Exiting.")
-            return False
-    print("✅ [Startup] Docker is running.")
+    if is_docker_running():
+        print("✅ [Startup] Docker is running.")
+    else:
+        print("⚠️ [Warning] Docker is NOT running. Weaviate will not work!")
 
-    # ✅ Step 2: Check Weaviate
+    # ✅ Step 2: Check if Weaviate exists
+    print("🔍 Checking if Weaviate container exists...")
+    weaviate_containers = subprocess.run(
+        ["docker", "ps", "-a", "--format", "{{.Names}}"],
+        capture_output=True, text=True
+    ).stdout.split("\n")
+
+    if "weaviate" in weaviate_containers:
+        print("✅ Weaviate container exists.")
+    else:
+        print("⚠️ [Warning] Weaviate container is MISSING. Run RESET to recreate it!")
+
+    # ✅ Step 3: Check if Weaviate is running
     print("🔍 Checking if Weaviate is running...")
     if is_weaviate_running():
-        print("✅ [Startup] Weaviate is running and ready.")
-        return True  # Everything is already working!
+        print("✅ Weaviate is running.")
+    else:
+        print("⚠️ [Warning] Weaviate is NOT running.")
 
-    print("🛠 [Startup] Weaviate is not running. Attempting to start...")
+    # ✅ Step 4: Check if Weaviate is fully ready
+    print("⏳ Checking Weaviate readiness...")
+    if is_weaviate_fully_ready():
+        print("✅ Weaviate is fully ready.")
+    else:
+        print("⚠️ [Warning] Weaviate is NOT fully ready. Schema or data might be missing.")
 
-    # ✅ Step 3: If Weaviate is missing, fully reset it (similar to `reset_memory()`)
-    if not start_weaviate():
-        print("🗑 Removing any existing Weaviate container before starting fresh...")
-        subprocess.run(["docker", "rm", "-f", "weaviate"], capture_output=True, text=True)
-        subprocess.run(["docker", "volume", "rm", "ashbot_weaviate_data"], capture_output=True, text=True)
-
-        print("📥 Pulling latest Weaviate image via docker-compose...")
-        subprocess.run(["docker-compose", "pull", "weaviate"], capture_output=True, text=True)
-
-        print("🚀 Starting Weaviate stack using docker-compose...")
-        result = subprocess.run(["docker-compose", "up", "-d"], capture_output=True, text=True)
-        if result.returncode != 0:
-            print(f"❌ [Startup] Failed to create Weaviate container: {result.stderr}")
-            return False
-
-    # ✅ Step 4: Wait for Weaviate to be fully ready
-    print("⏳ Waiting for Weaviate to become available...")
-    if not is_weaviate_fully_ready():
-        print("❌ Weaviate did not start correctly. Check logs.")
-        return False
-
-    # ✅ Step 5: Initialize Weaviate schema & insert base data
-    print("📜 Initializing schema & inserting base data...")
-    if not initialize_weaviate_data():
-        print("❌ Failed to initialize Weaviate data.")
-        return False
-
-    print("🎉 [Startup] Weaviate is fully initialized and ready!")
-    return True
-
+    print("🎉 [Startup] Status check complete. Use RESET if Weaviate is missing or broken.")
+    
+    import logging    
+    
+    # ✅ Set up logging
+    logging.basicConfig(level=logging.WARNING)
