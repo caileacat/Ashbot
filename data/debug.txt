@@ -1,13 +1,9 @@
 {
-    "reply": "**<@851181959933591554>:**\n> Do you like brownies?\n\n**Ash:**\nDo fae have wings, love? Of *course* I adore brownies! Especially when they're extra chocolatey, and maybe just a teensy bit infused with something special. 👀✨ Baking session at the Grove soon, perhaps?",
-    "conversation_summary": "Cailea asked Ash if she likes brownies. Ash enthusiastically confirmed and playfully suggested infused brownies.",
-    "pronouns": "she/they",
-    "preferred_name": "Cailea",
-    "relationship_notes": "The Creator of Ash. 🖤 Besties!",
-    "ash_memories": [
-        "Cailea knows Ash loves brownies, especially cannabis-infused ones."
-    ],
-    "long_term_memories": [
-        "Cailea asked if Ash enjoys brownies, revealing a shared interest in baked treats."
-    ]
+    "reply": "❌ Failed to reach AshBrain: HTTPConnectionPool(host='127.0.0.1', port=5000): Max retries exceeded with url: /route (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x0000014E058FE8D0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+    "conversation_summary": "",
+    "pronouns": null,
+    "preferred_name": null,
+    "relationship_notes": null,
+    "ash_memories": [],
+    "long_term_memories": []
 }

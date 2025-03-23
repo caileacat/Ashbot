@@ -7,7 +7,7 @@ import logging
 import threading
 from discord.ext import commands
 from core.startup import startup_sequence
-from core.message_handler import gather_data_for_chatgpt
+from core.message_handler import gather_data_for_local_llm
 from data.constants import GUILD_ID, DISCORD_BOT_TOKEN, ASH_EPHEMERAL_MESSAGES
 from core.logging_manager import show_logging_menu
 from core.weaviate_manager import (
@@ -87,7 +87,7 @@ async def talk_to_ash(interaction: discord.Interaction, message: str):
         await interaction.response.send_message(ephemeral_message, ephemeral=True)
 
         # ✅ Process the request asynchronously without an immediate public response
-        asyncio.create_task(gather_data_for_chatgpt(user_id, message, channel))
+        asyncio.create_task(gather_data_for_local_llm(user_id, message, channel))
 
     except Exception as e:
         print(f"❌ ERROR processing /ash command: {e}")

@@ -8,3 +8,4 @@ weaviate-client
 pynacl
 pyyaml
 docker
+sentence-transformers

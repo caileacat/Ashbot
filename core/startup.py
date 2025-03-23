@@ -1,9 +1,8 @@
 import subprocess
-import logging
 from core.weaviate_manager import (
     is_docker_running,
     is_weaviate_running,
-    is_weaviate_fully_ready,
+    is_weaviate_fully_ready
 )
 
 def startup_sequence():
@@ -44,8 +43,6 @@ def startup_sequence():
         print("⚠️ [Warning] Weaviate is NOT fully ready. Schema or data might be missing.")
 
     print("🎉 [Startup] Status check complete. Use RESET if Weaviate is missing or broken.")
-    
+
     import logging    
-    
-    # ✅ Set up logging
     logging.basicConfig(level=logging.WARNING)

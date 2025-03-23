@@ -14,6 +14,7 @@ ASH_BOT_ID = int(os.getenv("ASH_BOT_ID", 0))
 CAILEA_ID = os.getenv("CAILEA_ID", "")  # ✅ Keep as string (not int)
 LEMON_ID = os.getenv("LEMON_ID", "")  # ✅ Keep as string (not int)
 COMMUNITY_SUPPORT_ID = int(os.getenv("COMMUNITY_SUPPORT_ID", 0))
+ASHBRAIN_API_URL=os.getenv("ASHBRAIN_API_URL", "")
 
 # 🔹 Debugging
 DEBUG_FILE = "data/debug.txt"

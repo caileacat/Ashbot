@@ -6,8 +6,12 @@ import weaviate
 import requests
 import subprocess
 import weaviate.classes as wvc
+from datetime import datetime, timedelta
 from weaviate.classes.query import Filter
+from sentence_transformers import SentenceTransformer, util
 from data.constants import WEAVIATE_URL, CAILEA_ID, BASE_MEMORIES, OPENAI_API_KEY
+
+model = SentenceTransformer("all-MiniLM-L6-v2")
 
 URLS =  [
         "http://localhost:8080/v1/meta",  # Works when calling from the host machine
@@ -52,9 +56,10 @@ def connect_to_weaviate():
         return None
 
 ### **🔹 Upsert User Memory (Profile & Long-Term Memory)**
-def upsert_user_memory(user_id, name=None, pronouns=None, role=None, relationship_notes=None, new_memory=None):
+def upsert_user_memory(user_id, name=None, pronouns=None, role=None, relationship_notes=None, new_memory=None, source=None, verified=None):
     """
     Inserts or updates user details and long-term memories into Weaviate.
+    Accepts optional source and verified flags for memory origin tracking.
     """
     client = connect_to_weaviate()
     if not client:
@@ -69,14 +74,27 @@ def upsert_user_memory(user_id, name=None, pronouns=None, role=None, relationshi
 
         existing_user = user_profile.objects[0] if user_profile.objects else None
 
-        # ✅ Prepare data for insert/update
+        memory_list = []
+        if existing_user:
+            existing_mem = existing_user.properties.get("memory", "[]")
+            try:
+                memory_list = json.loads(existing_mem) if isinstance(existing_mem, str) else existing_mem
+            except Exception:
+                memory_list = []
+
+        if new_memory:
+            memory_list.append(new_memory)
+            print(f"[UserMemory] PROMOTED memory for {user_id}: \"{new_memory}\"")
+
         update_data = {
             "user_id": user_id,
-            "name": name or existing_user.properties.get("name", ""),
-            "pronouns": pronouns or existing_user.properties.get("pronouns", ""),
-            "role": role or existing_user.properties.get("role", ""),
-            "relationship_notes": relationship_notes or existing_user.properties.get("relationship_notes", ""),
-            "memory": json.dumps(existing_user.properties.get("memory", []) + [new_memory]) if new_memory else existing_user.properties.get("memory", "[]")
+            "name": name or (existing_user.properties.get("name") if existing_user else ""),
+            "pronouns": pronouns or (existing_user.properties.get("pronouns") if existing_user else ""),
+            "role": role or (existing_user.properties.get("role") if existing_user else ""),
+            "relationship_notes": relationship_notes or (existing_user.properties.get("relationship_notes") if existing_user else ""),
+            "memory": json.dumps(memory_list),
+            "source": source or "promoted",
+            "verified": verified if verified is not None else False
         }
 
         if existing_user:
@@ -693,6 +711,64 @@ def weaviate_menu():
 
         # ✅ Refresh menu status
         weaviate_running = is_weaviate_running()
+
+def promote_memory_to_learned(user_id, recent_memories, threshold=3, similarity_cutoff=0.9):
+    print(f"[Memory Promotion] Checking for learned memory promotion for user: {user_id}")
+
+    try:
+        user_data = fetch_user_profile(user_id)
+        existing_texts = user_data.get("memory", [])
+        print(f"[Memory Promotion] Existing memories: {len(existing_texts)}")
+
+        count_map = {}
+        for mem in recent_memories:
+            text = mem.get("text")
+            timestamp = mem.get("timestamp")
+            print(f"🔎 Memory candidate: \"{text}\" at {timestamp}")
+
+            if not text:
+                print("⚠️ Skipping: No text.")
+                continue
+
+            if timestamp and isinstance(timestamp, str):
+                try:
+                    timestamp = datetime.fromisoformat(timestamp)
+                except Exception:
+                    print("⚠️ Skipping: Bad timestamp format.")
+                    continue
+
+            if timestamp and (datetime.now() - timestamp > timedelta(days=10)):
+                print("⏳ Skipping: Too old.")
+                continue
+
+            count_map[text] = count_map.get(text, 0) + 1
+
+        print(f"[Memory Promotion] Frequency map: {count_map}")
+
+        for memory_text, count in count_map.items():
+            print(f"🧪 Checking \"{memory_text}\" ({count} mentions)")
+            if count < threshold:
+                print("❌ Not enough repetitions.")
+                continue
+
+            memory_embedding = model.encode(memory_text, convert_to_tensor=True)
+
+            if existing_texts:
+                existing_embeddings = model.encode(existing_texts, convert_to_tensor=True)
+                similarities = util.cos_sim(memory_embedding, existing_embeddings)
+                max_sim = similarities.max().item()
+                print(f"🔁 Max similarity to existing: {max_sim:.2f}")
+
+                if similarities.size(0) > 0 and max_sim > similarity_cutoff:
+                    print(f"❌ Too similar to existing memory. Skipping: \"{memory_text}\"")
+                    continue
+
+            print(f"✅ PROMOTING: {memory_text}")
+            upsert_user_memory(user_id, new_memory=memory_text, source="promoted", verified=False)
+
+    except Exception as e:
+        print(f"❌ ERROR during memory promotion: {e}")
+
 
 if __name__ == "__main__":
     weaviate_menu()
